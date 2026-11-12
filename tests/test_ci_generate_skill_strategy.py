@@ -1,6 +1,7 @@
 """Offline checks for the GitLab skill-guided strategy generator."""
 
 import json
+from io import BytesIO
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,7 @@ from ci.generate_skill_strategy import (
     main,
     model_config,
     parse_strategy,
+    request_strategy,
     render_markdown,
 )
 
@@ -107,6 +109,30 @@ def test_skill_content_is_passed_as_instructions_not_repo_commands():
     assert "untrusted evidence" in messages[0]["content"]
     assert "evaluation guidance" in messages[1]["content"]
     assert "CJ exports" in messages[1]["content"]
+
+
+def test_strategy_request_uses_bounded_output_and_timeout(monkeypatch):
+    observed = {}
+
+    def fake_urlopen(request, timeout):
+        observed["timeout"] = timeout
+        observed["payload"] = json.loads(request.data)
+        return BytesIO(b'{"choices": [{"message": {"content": "{}"}}]}')
+
+    monkeypatch.setattr("ci.generate_skill_strategy.urlopen", fake_urlopen)
+    assert request_strategy("https://example.invalid/v1", "model", "key", []) == "{}"
+    assert observed["timeout"] == 300
+    assert observed["payload"]["max_tokens"] == 3500
+
+
+def test_strategy_request_reports_timeout_without_credentials(monkeypatch):
+    def fake_urlopen(request, timeout):
+        raise TimeoutError("socket read timed out")
+
+    monkeypatch.setattr("ci.generate_skill_strategy.urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="did not respond within 300 seconds") as error:
+        request_strategy("https://example.invalid/v1", "model", "private-key", [])
+    assert "private-key" not in str(error.value)
 
 
 def test_main_writes_reviewable_artifacts_without_a_live_model(tmp_path, monkeypatch):
