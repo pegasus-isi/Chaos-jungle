@@ -104,12 +104,14 @@ installation if a variable is missing; `ci/run_real_experiment.py` then checks
 the URL and uses the values for its live calls. The separate `real_experiment`
 job uses a local mock service and needs no LLM variables. Both jobs run latency,
 503-unavailable, and 429-rate-limit cases after `build_dist`, installing its
-wheel rather than the editable checkout. The manual `resource_experiment` job
-also uses that wheel and runs bounded CPU and memory stress cases inside its own
-Docker job container. The CPU case pins itself and its children to one CPU at
-low priority; the memory case allocates 64 MiB after a headroom check. Neither
+wheel rather than the editable checkout. The manual `resource_cpu_experiment`
+and `resource_memory_experiment` jobs each use that wheel and run bounded stress
+cases in separate Docker job containers. The CPU case pins itself and its
+children to one CPU at low priority; the memory case allocates 64 MiB after a
+headroom check. CJ's opt-in preflight installs `stress-ng` in each container
+before the baseline; the wheel installation does not install the system tool. Neither
 case requires a runner-configured cgroup limit, but neither gives a hard host
-resource limit, so keep this job manual on shared runners.
+resource limit, so keep both jobs manual on shared runners.
 These jobs are smoke tests, not benchmarks. The live job's database and metrics
 artifact may contain prompts and model responses, so restrict artifact access
 and retention accordingly.

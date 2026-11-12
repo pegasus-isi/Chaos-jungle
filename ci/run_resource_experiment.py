@@ -92,10 +92,12 @@ def run_experiment(output_dir: Path, fault_name: str = "cpu") -> None:
         CPUStress(cores=1, duration_s=5)
         if fault_name == "cpu" else MemoryStress(mb=64, duration_s=5)
     )
+    fault.preflight(target, auto_install=True)
     runner = ChaosRunner(
         Scenario("ci-container-{}-stress".format(fault_name), [fault]),
         target,
         db=db,
+        auto_install=True,
         policy=SafetyPolicy(max_danger=1, max_duration_s=8, monitor_interval_s=0.5),
     )
     phase = {"fault": False, "active_checks": 0}

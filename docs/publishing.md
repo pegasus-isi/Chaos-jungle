@@ -44,9 +44,14 @@ the imports resolve to the built package rather than the source checkout. They
 are integration smoke checks, not benchmark estimates; two trials per
 condition are too few for stable latency percentiles or confidence intervals.
 
-The optional `resource_experiment` job also waits for `build_dist` and installs
-its wheel. It runs separate CJ `CPUStress` and `MemoryStress` scenarios inside
-the same Docker job container, each with two baseline and two fault trials.
+The optional `resource_cpu_experiment` and `resource_memory_experiment` jobs
+each wait for `build_dist` and install its wheel. They run independent CJ
+`CPUStress` and `MemoryStress` scenarios in separate Docker job containers,
+each with two baseline and two fault trials.
+After refreshing the Debian package index, the script uses CJ preflight's
+opt-in `auto_install=True` to install `stress-ng` inside that disposable
+container before measuring the baseline. Installing the wheel alone does not
+install the system tool. Each job has its own database and metrics artifacts.
 The CPU case pins the experiment and its children to one allowed CPU and lowers
 their priority; the memory case uses 64 MiB after checking available headroom.
 Both faults auto-expire after five seconds, and CJ stops them after measurement.

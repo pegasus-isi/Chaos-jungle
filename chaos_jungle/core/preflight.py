@@ -7,7 +7,6 @@ without user confirmation.
 """
 
 from __future__ import annotations
-import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -24,6 +23,12 @@ PKG_MAP: dict[str, dict[str, str]] = {
         "yum":  "iproute",
         "apk":  "iproute2",
         "brew": "iproute2mac",
+    },
+    "iptables": {
+        "apt": "iptables",
+        "dnf": "iptables",
+        "yum": "iptables",
+        "apk": "iptables",
     },
     "e2fsprogs": {
         "apt":  "e2fsprogs",
@@ -114,6 +119,7 @@ PKG_MAP: dict[str, dict[str, str]] = {
 
 PKG_TO_BIN: dict[str, str | None] = {
     "iproute2":           "tc",
+    "iptables":           "iptables",
     "e2fsprogs":          "filefrag",
     "inotify-tools":      "inotifywait",
     "coreutils":          "dd",
@@ -127,6 +133,7 @@ PKG_TO_BIN: dict[str, str | None] = {
     "redis-tools":        "redis-cli",
     "postgresql-client":  "psql",
     "stress-ng":          "stress-ng",
+    "systemd":            "systemctl",
 }
 
 _INSTALL_CMDS: dict[str, str] = {
@@ -288,7 +295,8 @@ class Preflight:
         if auto_install is False:
             mgr = self.detect_pkg_manager() or "apt"
             sys_fix = " ".join(
-                PKG_MAP.get(c, {}).get(mgr, c) for c, _ in missing_sys
+                PKG_MAP.get(c, {}).get(mgr, c)
+                for c, _ in missing_sys if c != "systemd"
             )
             pip_fix = " ".join(missing_pip)
             fix_hint = ""
@@ -296,10 +304,22 @@ class Preflight:
                 fix_hint += f"  sudo {mgr} install {sys_fix}\n"
             if pip_fix:
                 fix_hint += f"  pip3 install {pip_fix}\n"
+            if any(c == "systemd" for c, _ in missing_sys):
+                fix_hint += "  Run this fault on a target with a working systemd service manager.\n"
+            auto_hint = (
+                "" if any(c == "systemd" for c, _ in missing_sys)
+                else "Or pass auto_install=True to install automatically."
+            )
             raise PreflightError(
                 f"{fault_name} preflight failed — missing on target:\n{summary}\n\n"
                 f"Fix:\n{fix_hint}"
-                f"Or pass auto_install=True to install automatically."
+                f"{auto_hint}"
+            )
+
+        if any(c == "systemd" for c, _ in missing_sys):
+            raise PreflightError(
+                f"{fault_name} requires systemctl on a target running systemd; "
+                "CJ cannot provision a service manager during preflight."
             )
 
         if auto_install == "prompt":

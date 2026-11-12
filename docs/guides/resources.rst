@@ -65,6 +65,15 @@ Available faults
 Installing dependencies on the target
 --------------------------------------
 
+CJ checks for ``stress-ng`` during preflight. By default, a missing tool stops
+the experiment without changing the target. Pass ``auto_install=True`` to
+``ChaosRunner`` to let CJ install it through the target's package manager before
+injection; this requires installation privileges on that target. In a fresh
+Debian container, refresh the package index first with ``apt-get update``.
+Installing the Python package itself does not install or start ``stress-ng``.
+
+Alternatively, install the tool yourself:
+
 .. code-block:: bash
 
    # Ubuntu / Debian
@@ -131,7 +140,7 @@ CPU workers.
    runner = ChaosRunner(Scenario("cpu-pressure", [fault]), target)
    runner.start()
    # run inference workload — CPU-bound tasks will slow down
-   runner.stop()   # stress-ng killed
+   runner.stop()   # this fault's stress-ng process stopped
 
 **What to observe:**
 

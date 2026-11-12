@@ -72,7 +72,7 @@ real_llm_experiment:
       - ci-artifacts/real-llm-experiment/
     expire_in: 1 week
 
-resource_experiment:
+.resource_experiment:
   stage: verify
   image: python:3.12-slim
   timeout: 10m
@@ -85,16 +85,25 @@ resource_experiment:
     - when: manual
       allow_failure: true
   script:
-    - apt-get update && apt-get install -y --no-install-recommends stress-ng
+    - apt-get update
     - python -m pip install dist/*.whl
     - cd /tmp
-    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --fault cpu --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment/cpu"
-    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --fault memory --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment/memory"
+    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --fault "$CJ_RESOURCE_FAULT" --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment/$CJ_RESOURCE_FAULT"
   artifacts:
     when: always
     paths:
       - ci-artifacts/resource-experiment/
     expire_in: 1 week
+
+resource_cpu_experiment:
+  extends: .resource_experiment
+  variables:
+    CJ_RESOURCE_FAULT: cpu
+
+resource_memory_experiment:
+  extends: .resource_experiment
+  variables:
+    CJ_RESOURCE_FAULT: memory
 
 lint:
   stage: test

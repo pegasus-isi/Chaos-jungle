@@ -1,6 +1,7 @@
 """Local target — runs commands on the current machine via subprocess."""
 
 from __future__ import annotations
+import os
 import shutil
 import subprocess
 
@@ -10,7 +11,8 @@ from chaos_jungle.targets.base import Target
 class LocalTarget(Target):
     """Run fault commands on the local machine.
 
-    No connection needed. ``sudo`` prepends ``sudo`` to the command.
+    No connection needed. ``sudo`` uses current root privileges when present,
+    otherwise it prepends ``sudo`` to the command.
     Suitable for development and single-node testing.
 
     Examples
@@ -35,6 +37,8 @@ class LocalTarget(Target):
         return result.returncode, result.stdout, result.stderr
 
     def sudo(self, cmd: str) -> tuple[int, str, str]:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            return self.run(cmd)
         return self.run(f"sudo {cmd}")
 
     def put(self, local_path: str, remote_path: str) -> None:

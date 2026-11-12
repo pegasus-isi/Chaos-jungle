@@ -49,7 +49,12 @@ In-process HTTP interception can run without Linux privileges. Infrastructure
 faults act on a target machine or container and may require Linux utilities,
 container access, or elevated privileges. Check the relevant fault guide and
 run preflight before applying a fault. Installing the Python package alone
-does not install system tools on remote targets.
+does not install system tools on remote targets. With ``auto_install=True`` on
+``ChaosRunner``, preflight can install missing declared tools such as
+``stress-ng``, ``tc`` (``iproute2``), and ``iptables`` using the target's package
+manager. This is opt-in and requires package-installation privileges on that
+target; it does not install a Docker daemon, enable systemd, or grant kernel
+capabilities.
 
 For a local example, continue with :doc:`../quickstart`. For the GitLab build,
 distribution checks, and PyPI release procedure, see :doc:`../publishing`.
