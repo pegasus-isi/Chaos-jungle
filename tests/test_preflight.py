@@ -57,3 +57,18 @@ def test_systemd_is_not_auto_installed():
 
     assert "which systemctl 2>/dev/null" in target.probes
     assert target.installs == []
+
+
+def test_python_crontab_checks_its_import_name():
+    class InstalledCrontabTarget(MissingCommandTarget):
+        def run(self, cmd):
+            self.probes.append(cmd)
+            if cmd == "python3 -c 'import crontab' 2>/dev/null":
+                return 0, "", ""
+            return 1, "", ""
+
+    target = InstalledCrontabTarget()
+
+    Preflight(target).run("StorageCorrupt", [], ["python-crontab"], auto_install=False)
+
+    assert target.probes == ["python3 -c 'import crontab' 2>/dev/null"]

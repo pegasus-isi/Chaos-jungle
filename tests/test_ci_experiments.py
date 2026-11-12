@@ -34,9 +34,36 @@ def test_local_model_experiment(tmp_path, fault_name, expected_status):
         assert report["fault"]["http_{}_count".format(expected_status)] > 0
 
 
-def test_resource_stress_requires_container_marker(tmp_path):
-    with pytest.raises(RuntimeError, match="Docker job container"):
-        prepare_container(pin_cpu=True, container_marker=tmp_path / "missing-marker")
+def test_resource_stress_requires_container_marker(tmp_path, monkeypatch):
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    with pytest.raises(RuntimeError, match="Docker or Kubernetes job container"):
+        prepare_container(
+            pin_cpu=True,
+            container_marker=tmp_path / "missing-docker-marker",
+            kubernetes_marker=tmp_path / "missing-kubernetes-marker",
+        )
+
+
+def test_resource_stress_accepts_kubernetes_pod(tmp_path, monkeypatch):
+    monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+    monkeypatch.setattr(os, "nice", lambda _value: 10, raising=False)
+    assert prepare_container(
+        pin_cpu=False,
+        container_marker=tmp_path / "missing-docker-marker",
+        kubernetes_marker=tmp_path / "missing-kubernetes-marker",
+    ) is None
+
+
+def test_resource_stress_accepts_kubernetes_service_account_marker(tmp_path, monkeypatch):
+    monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+    monkeypatch.setattr(os, "nice", lambda _value: 10, raising=False)
+    marker = tmp_path / "namespace"
+    marker.touch()
+    assert prepare_container(
+        pin_cpu=False,
+        container_marker=tmp_path / "missing-docker-marker",
+        kubernetes_marker=marker,
+    ) is None
 
 
 def test_cpu_stress_pins_one_core_and_lowers_priority(tmp_path, monkeypatch):

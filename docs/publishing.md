@@ -46,7 +46,7 @@ condition are too few for stable latency percentiles or confidence intervals.
 
 The optional `resource_cpu_experiment` and `resource_memory_experiment` jobs
 each wait for `build_dist` and install its wheel. They run independent CJ
-`CPUStress` and `MemoryStress` scenarios in separate Docker job containers,
+`CPUStress` and `MemoryStress` scenarios in separate CI job containers,
 each with two baseline and two fault trials.
 After refreshing the Debian package index, the script uses CJ preflight's
 opt-in `auto_install=True` to install `stress-ng` inside that disposable

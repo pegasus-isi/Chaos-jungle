@@ -15,9 +15,14 @@ from chaos_jungle.db.session_db import SessionDB
 from chaos_jungle.metrics import CollectStrategy, MetricSet
 
 
-def prepare_container(pin_cpu: bool, container_marker: Path = Path("/.dockerenv")) -> int | None:
-    if not container_marker.exists():
-        raise RuntimeError("Resource stress is restricted to a Docker job container")
+def prepare_container(
+    pin_cpu: bool,
+    container_marker: Path = Path("/.dockerenv"),
+    kubernetes_marker: Path = Path("/var/run/secrets/kubernetes.io/serviceaccount/namespace"),
+) -> int | None:
+    is_kubernetes = bool(os.environ.get("KUBERNETES_SERVICE_HOST")) or kubernetes_marker.exists()
+    if not container_marker.exists() and not is_kubernetes:
+        raise RuntimeError("Resource stress is restricted to a Docker or Kubernetes job container")
     cpu = None
     if pin_cpu:
         allowed_cpus = os.sched_getaffinity(0)

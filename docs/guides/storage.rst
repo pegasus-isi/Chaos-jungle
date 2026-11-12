@@ -307,9 +307,11 @@ a failing disk and a degraded network link:
    ])
    runner = ChaosRunner(scenario, target)
    runner.start()
-   # run pipeline
-   runner.stop()
-   runner.revert()   # always revert storage after the experiment
+   try:
+       # run pipeline
+       pass
+   finally:
+       runner.stop()  # stops and reverts activated faults
 
 Dependencies
 ------------
@@ -321,9 +323,12 @@ Required on the target machine:
    sudo apt-get install -y python3 e2fsprogs coreutils inotify-tools
    pip3 install python-crontab
 
-These are checked automatically by ``preflight()``::
-
-   runner.preflight(target, auto_install=True)
+The runner checks these on the target when ``runner.start()`` calls each fault's
+preflight. By default, missing dependencies stop the experiment. To let CJ
+install missing declared packages, construct the runner with
+``ChaosRunner(scenario, target, auto_install=True)``. This requires installation
+privileges and ``pip3`` on the target; scheduled corruption also requires a
+working cron scheduler, which CJ does not provision.
 
 See also
 --------

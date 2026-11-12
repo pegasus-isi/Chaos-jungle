@@ -148,6 +148,10 @@ _PIP_MAP: dict[str, str] = {
     "python-crontab": "python-crontab",
 }
 
+_PIP_IMPORT_MAP: dict[str, str] = {
+    "python-crontab": "crontab",
+}
+
 
 class Preflight:
     """Dependency detection and auto-installation for a specific target.
@@ -242,7 +246,7 @@ class Preflight:
         print(f"[preflight] OK: {pkg_name}", flush=True)
 
     def _pip_installed(self, pkg: str) -> bool:
-        import_name = pkg.replace("-", "_").split("[")[0]
+        import_name = _PIP_IMPORT_MAP.get(pkg, pkg.replace("-", "_").split("[")[0])
         code, _, _ = self.target.run(
             f"python3 -c 'import {import_name}' 2>/dev/null"
         )

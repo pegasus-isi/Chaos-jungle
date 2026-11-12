@@ -106,7 +106,7 @@ job uses a local mock service and needs no LLM variables. Both jobs run latency,
 503-unavailable, and 429-rate-limit cases after `build_dist`, installing its
 wheel rather than the editable checkout. The manual `resource_cpu_experiment`
 and `resource_memory_experiment` jobs each use that wheel and run bounded stress
-cases in separate Docker job containers. The CPU case pins itself and its
+cases in separate CI job containers. The CPU case pins itself and its
 children to one CPU at low priority; the memory case allocates 64 MiB after a
 headroom check. CJ's opt-in preflight installs `stress-ng` in each container
 before the baseline; the wheel installation does not install the system tool. Neither

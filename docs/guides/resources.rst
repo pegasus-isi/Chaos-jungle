@@ -82,7 +82,7 @@ Alternatively, install the tool yourself:
    # RHEL / CentOS / Fedora
    sudo dnf install -y stress-ng
 
-   # coreutils (dd) is pre-installed on all POSIX systems
+   # For disk faults, preflight also checks for dd (usually from coreutils).
 
 
 DiskFull
