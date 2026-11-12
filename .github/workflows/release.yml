@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag, such as v0.1.0a0
+        description: Existing release tag, such as v0.1.0a1
         required: true
         type: string
 
@@ -66,18 +66,24 @@ jobs:
           assert f"Current package version is `{version}`" in Path("README.md").read_text(), "README version must match"
           source = Path("chaos_jungle/__init__.py").read_text()
           assert f'__version__ = "{version}"' in source, "Package version must match"
+          notes = Path("docs/releases") / f"{os.environ['RELEASE_TAG']}.md"
+          assert notes.is_file(), f"Missing release notes: {notes}"
           PY
       - name: Build and check distributions
         run: |
           python -m pip install build twine
           python -m build
           python -m twine check dist/*
+      - name: Build assistant skills bundle
+        run: python ci/build_skill_bundle.py --version "${RELEASE_TAG#v}" --output-dir dist
       - name: Check release contents
         run: |
           python - <<'PY'
           from pathlib import Path
           from tarfile import open as open_tar
           from zipfile import ZipFile
+          from ci.build_skill_bundle import SKILL_NAMES
+          import os
 
           wheel, = Path("dist").glob("*.whl")
           sdist, = Path("dist").glob("*.tar.gz")
@@ -89,6 +95,17 @@ jobs:
               assert any(name.endswith("/" + resource) for name in names)
               assert not any("/evaluation/" in name or "/results/" in name for name in names)
               assert not any("/skills/" in name for name in names)
+          bundle = Path("dist") / f"chaos-jungle-skills-{os.environ['RELEASE_TAG']}.zip"
+          with ZipFile(bundle) as archive:
+              entries = set(archive.namelist())
+              expected = {
+                  f"{skill}/{path.relative_to(Path('skills') / skill).as_posix()}"
+                  for skill in SKILL_NAMES
+                  for path in (Path("skills") / skill).rglob("*")
+                  if path.is_file()
+              }
+              assert entries == expected
+              assert all(f"{skill}/SKILL.md" in entries for skill in SKILL_NAMES)
           PY
       - name: Smoke test installed wheel
         run: |
@@ -102,6 +119,7 @@ jobs:
           path: |
             dist/*.whl
             dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
   github-release:
@@ -110,6 +128,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - uses: actions/download-artifact@v4
         with:
           name: python-distributions
@@ -119,7 +140,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          options=(--verify-tag --generate-notes --title "Chaos Jungle ${RELEASE_TAG#v}")
+          options=(--verify-tag --notes-file "docs/releases/$RELEASE_TAG.md" --title "Chaos Jungle ${RELEASE_TAG#v}")
           if [[ "$RELEASE_TAG" =~ (a|b|rc)[0-9]+$ ]]; then
             options+=(--prerelease --latest=false)
           fi

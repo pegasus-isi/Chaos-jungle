@@ -1,6 +1,17 @@
 Changelog
 =========
 
+0.1.0a1 (GitHub alpha)
+----------------------
+
+* Unified the Python wheel, source archive, and two-skill ZIP in one GitHub
+  Release with a versioned release note.
+* Documented installation for Codex, Claude Code, and the ``npx skills`` CLI.
+* No runtime fault behavior change is claimed for this packaging release.
+
+The entries below record earlier internal development milestones; their
+version labels are not the sequence of public GitHub alpha releases.
+
 1.5.0 (2026-07-06)
 ------------------
 

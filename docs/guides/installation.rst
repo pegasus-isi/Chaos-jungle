@@ -15,11 +15,11 @@ downloaded file inside a virtual environment:
 
    python3 -m venv .venv
    . .venv/bin/activate
-   python -m pip install ./chaos_jungle-0.1.0a0-py3-none-any.whl
+   python -m pip install ./chaos_jungle-0.1.0a1-py3-none-any.whl
 
-The optional AI-assistant skills are in one ZIP under the separate
-`skills-v0.1.0a0 release
-<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/skills-v0.1.0a0>`_.
+The optional AI-assistant skills are in one ZIP on the same
+`v0.1.0a1 release
+<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a1>`_.
 Installing the Python wheel does not install the skills.  The wheel's
 ``py3-none-any`` suffix means its Python code has no compiled ABI or
 platform-specific wheel restriction; infrastructure faults still have

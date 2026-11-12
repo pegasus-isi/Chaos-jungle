@@ -190,4 +190,4 @@ the Python package does not grant those permissions.
 
    changelog
    publishing
-   releases/skills-v0.1.0a0
+   releases/v0.1.0a1

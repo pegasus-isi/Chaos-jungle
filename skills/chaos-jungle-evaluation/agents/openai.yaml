@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chaos Jungle Evaluation"
+  short_description: "Design and analyze CJ resilience studies"
+  default_prompt: "Use Chaos Jungle to design a reproducible resilience evaluation with valid exposure checks and application-specific outcomes."

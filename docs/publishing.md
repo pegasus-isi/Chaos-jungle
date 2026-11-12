@@ -1,9 +1,9 @@
 # Building and publishing Chaos Jungle
 
-The first public release is the alpha pre-release `0.1.0a0`. Python 3.9
+The current GitHub alpha pre-release is `0.1.0a1`. Python 3.9
 remains supported for package users and tests. Release tooling (Commitizen and
 pre-commit) requires Python 3.10 or newer. Version and release tags follow
-PEP 440: for example, `0.1.0a0` in package metadata and `v0.1.0a0` in Git.
+PEP 440: for example, `0.1.0a1` in package metadata and `v0.1.0a1` in Git.
 
 The GitLab pipeline runs the core test suite on Python 3.9-3.12, checks Ruff,
 builds a wheel and source distribution, validates their metadata, and installs
@@ -88,13 +88,16 @@ environments, secrets, or generated results. The `.gitignore` file prevents
 local artifacts from being committed; the Hatchling `sdist` allowlist controls
 what enters a source release. Check both before each release.
 
-The two AI-assistant skills are released independently of the Python package.
 `ci/build_skill_bundle.py` creates one versioned ZIP with both complete
-skill directories, preserving each `SKILL.md` and its supporting files.
-The ZIP is attached to a GitHub Release tagged `skills-v<package-version>`,
-not to the Python package release. Build it locally with
-`python ci/build_skill_bundle.py --version 0.1.0a0 --output-dir dist` and
-inspect the archive entries before tagging.
+assistant-skill directories, preserving each `SKILL.md` and its supporting
+files. The wheel, source archive, and skills ZIP are assets of one GitHub
+Release tagged `v<package-version>`. The ZIP does not enter the Python wheel
+or source distribution. Build it locally with
+`python ci/build_skill_bundle.py --version 0.1.0a1 --output-dir dist` and
+inspect the archive entries before tagging. Codex and Claude Code read the
+same skill folders; `npx skills add` discovers them from the tagged
+repository, not from the ZIP. A private repository requires authenticated
+Git access for that command.
 
 To test a release locally, use a virtual environment with Python 3.10 or newer:
 
@@ -118,20 +121,17 @@ updates `pyproject.toml`, `uv.lock`, `chaos_jungle/__init__.py`, `docs/conf.py`,
 the README version notice, and `CHANGELOG.md` on later bumps. Run
 `cz bump --prerelease alpha` (or
 `--prerelease beta`) when you are ready for a *new* version. Review the bump
-commit and tag before pushing. The initial `v0.1.0a0` release tag should be
-created manually after this release-preparation change is merged to `main`.
-That tag now exists; do not move it when repairing a release workflow.
+commit and tag before pushing. Do not move a published tag when repairing a
+release workflow.
 
 For a GitHub release, inspect a fresh local build and confirm that the tag
 points to the intended commit on `main`. Pushing a new version tag runs
 `.github/workflows/release.yml`. It tests Python 3.9-3.12 on Ubuntu 24.04,
 checks the tag and package versions, builds and checks the wheel, source
-distribution, then creates a GitHub prerelease with those two Python assets.
-PyPI publishing is not configured. For skills, push the separate annotated
-`skills-v<package-version>` tag after reviewing the skill content on `main`.
-`.github/workflows/skills-release.yml` checks that tag and builds a single
-ZIP containing both skill folders. Its GitHub prerelease contains only that
-ZIP. The package wheel and source distribution are not rebuilt for this tag.
+distribution, and skills ZIP, then creates one GitHub prerelease with all
+three assets. The versioned release note at `docs/releases/v<version>.md`
+describes each file, installation, limitations, and feedback. PyPI publishing
+is not configured.
 
 If the workflow attached to an existing tag failed, do not force-push the tag.
 After fixing the workflow on `main`, use **Actions > Release Chaos Jungle > Run

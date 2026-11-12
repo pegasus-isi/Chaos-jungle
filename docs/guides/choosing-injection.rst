@@ -194,19 +194,30 @@ skill covers workloads, controls, outcome metrics, and analysis.  They are
 optional instructions, not part of the Python wheel or a replacement for
 runtime verification.
 
-Download the single ZIP from the matching `skills release
-<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/skills-v0.1.0a0>`_.
-It contains both complete skill directories.  For Codex, extract the
-downloaded archive into ``~/.agents/skills/`` for your user or
-``.agents/skills/`` in one project.  For example, with the first alpha:
+Download the skills ZIP from the matching `GitHub release
+<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a1>`_.
+It contains both complete skill directories. Extract it into the user or
+project skills directory for your assistant:
 
 .. code-block:: bash
 
-   unzip chaos-jungle-skills-v0.1.0a0.zip -d ~/.agents/skills/
+   unzip chaos-jungle-skills-v0.1.0a1.zip -d ~/.agents/skills/   # Codex
+   unzip chaos-jungle-skills-v0.1.0a1.zip -d ~/.claude/skills/   # Claude Code
 
-Start a new Codex session after installation.  The skills do not install CJ;
-install the matching Python package separately.  Other assistants with
-compatible skill mechanisms can import the same folders.
+Or install both from the tagged repository with the skills CLI:
+
+.. code-block:: bash
+
+   npx skills add pegasus-isi/Chaos-jungle@v0.1.0a1 \
+     --skill chaos-jungle-injection --skill chaos-jungle-evaluation \
+     -a codex -a claude-code -y
+
+This command reads the repository's ``skills/`` directory, not the ZIP.
+Because the repository is currently private, it requires repository access
+and configured Git authentication; the current skills CLI also requires
+Node.js 22.20 or newer. Start a new assistant session after
+installation. The skills do not install CJ; install the matching Python
+package separately.
 
 Next steps
 ----------

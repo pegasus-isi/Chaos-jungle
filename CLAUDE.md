@@ -34,7 +34,7 @@ from an isolated environment:
 DIST_DIR="$(mktemp -d)"
 python -m build --outdir "$DIST_DIR"
 python -m twine check "$DIST_DIR"/*
-python ci/build_skill_bundle.py --version 0.1.0a0 --output-dir "$DIST_DIR"
+python ci/build_skill_bundle.py --version 0.1.0a1 --output-dir "$DIST_DIR"
 python -m venv "$DIST_DIR/venv"
 "$DIST_DIR/venv/bin/python" -m pip install "$DIST_DIR"/*.whl
 "$DIST_DIR/venv/bin/python" -c 'from importlib.metadata import version; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__'
@@ -47,21 +47,20 @@ Neither GitLab job creates a GitHub Release.
 
 ## GitHub alpha release
 
-The initial version is `0.1.0a0`. Do not run `cz bump` to create this first
-version. The `v0.1.0a0` tag already exists. Do not move or recreate a published
-tag to fix CI: update the workflow on `main`, then use **Actions > Release Chaos
-Jungle > Run workflow** on `main` with `tag` set to `v0.1.0a0`.
+The current version is `0.1.0a1`. Do not move or recreate a published tag to
+fix CI: update the workflow on `main`, then use **Actions > Release Chaos
+Jungle > Run workflow** on `main` with the existing tag.
 
-The workflow checks the existing tag against the package version and `main`,
-runs Python 3.9-3.12 tests on Ubuntu 24.04, builds and checks the wheel and
-source distribution, and creates a GitHub prerelease with those two assets.
-The separate `skills-v0.1.0a0` tag runs `.github/workflows/skills-release.yml`,
-which publishes one ZIP containing both skills. No job publishes to PyPI.
-Check both GitHub Releases after the workflows succeed.
+The workflow checks the tag against the package version and `main`, runs
+Python 3.9-3.12 tests on Ubuntu 24.04, builds and checks the wheel, source
+distribution, and a single ZIP containing both assistant skills, then creates
+one GitHub prerelease with all three assets and a versioned release note.
+No job publishes to PyPI. Verify the assets and note before retiring any
+earlier GitHub Releases; leave their Git tags as history.
 
 ## Later alpha and beta versions
 
-Start from clean, up-to-date `main` after the first release tag exists. Use
+Start from clean, up-to-date `main` after the previous release tag exists. Use
 `cz bump --prerelease alpha` for another alpha, or `cz bump --prerelease beta`
 when moving to beta. Commitizen updates `pyproject.toml`, `uv.lock`, the Python
 and Sphinx version strings, the README version notice, and `CHANGELOG.md`; it
