@@ -85,10 +85,11 @@ resource_experiment:
     - when: manual
       allow_failure: true
   script:
-    - apt-get update && apt-get install -y --no-install-recommends stress-ng procps
+    - apt-get update && apt-get install -y --no-install-recommends stress-ng
     - python -m pip install dist/*.whl
     - cd /tmp
-    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment"
+    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --fault cpu --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment/cpu"
+    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --fault memory --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment/memory"
   artifacts:
     when: always
     paths:

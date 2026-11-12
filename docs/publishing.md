@@ -45,18 +45,18 @@ are integration smoke checks, not benchmark estimates; two trials per
 condition are too few for stable latency percentiles or confidence intervals.
 
 The optional `resource_experiment` job also waits for `build_dist` and installs
-its wheel. It runs CJ's `CPUStress` and a short CPU-bound workload inside the
-same Docker job container, recording throughput, cgroup throttling, the fault's
-declared default-metric names, activation checks, and recovery in
-`ci-artifacts/resource-experiment/`. The collected comparison uses only
-container-local measurements; a generic `top` CPU percentage could describe
-the runner host rather than this container.
-It starts one stress worker for at most eight seconds. Before activation, the
-script requires a Docker container with a cgroup CPU quota of at most one CPU;
-without that runner setting it stops rather than loading a shared host.
-Configure the GitLab Docker runner's CPU limit accordingly before starting
-this manual job. The throughput comparison is descriptive, not a performance
-claim from two trials.
+its wheel. It runs separate CJ `CPUStress` and `MemoryStress` scenarios inside
+the same Docker job container, each with two baseline and two fault trials.
+The CPU case pins the experiment and its children to one allowed CPU and lowers
+their priority; the memory case uses 64 MiB after checking available headroom.
+Both faults auto-expire after five seconds, and CJ stops them after measurement.
+The job saves separate databases, metrics, and summaries under
+`ci-artifacts/resource-experiment/cpu/` and `memory/`. CPU evidence is the
+stress worker's CPU time; memory evidence is its resident memory. The result
+also reports workload throughput, activation, and cleanup. No runner CPU quota
+is required, but affinity and low priority are not hard host isolation: keep
+this job manual on shared runners. These short comparisons are smoke checks,
+not performance estimates.
 
 For live-run diagnosis, the job logs the endpoint scheme, host, port, and
 path, the configured model, and whether an API key is present. It never logs

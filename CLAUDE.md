@@ -105,8 +105,11 @@ the URL and uses the values for its live calls. The separate `real_experiment`
 job uses a local mock service and needs no LLM variables. Both jobs run latency,
 503-unavailable, and 429-rate-limit cases after `build_dist`, installing its
 wheel rather than the editable checkout. The manual `resource_experiment` job
-also uses that wheel and runs a bounded CPU-stress case inside its own Docker
-job container; it requires a runner-configured cgroup limit of at most one CPU.
+also uses that wheel and runs bounded CPU and memory stress cases inside its own
+Docker job container. The CPU case pins itself and its children to one CPU at
+low priority; the memory case allocates 64 MiB after a headroom check. Neither
+case requires a runner-configured cgroup limit, but neither gives a hard host
+resource limit, so keep this job manual on shared runners.
 These jobs are smoke tests, not benchmarks. The live job's database and metrics
 artifact may contain prompts and model responses, so restrict artifact access
 and retention accordingly.
