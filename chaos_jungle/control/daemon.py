@@ -412,6 +412,13 @@ def run_scenario(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Cannot reconstruct scenario: {exc}")
 
+    with _REGISTRY_LOCK:
+        if _emergency_stop.is_set():
+            raise HTTPException(status_code=503, detail="Emergency stop is active")
+        if scenario_id in _RUNNER_REGISTRY or _RUNNER_STATUS.get(scenario_id) == "starting":
+            raise HTTPException(status_code=409, detail="Scenario is already running")
+        _RUNNER_STATUS[scenario_id] = "starting"
+
     # Set initial lease
     with _LEASE_LOCK:
         _LEASES[scenario_id] = time.time() + body.lease_s
@@ -420,13 +427,10 @@ def run_scenario(
         from chaos_jungle.targets.local import LocalTarget
         from chaos_jungle.core.runner import ChaosRunner
 
-        runner = ChaosRunner(scenario, target=LocalTarget(), auto_preflight=False)
-
-        with _REGISTRY_LOCK:
-            _RUNNER_REGISTRY[scenario_id] = runner
-            _RUNNER_STATUS[scenario_id] = "starting"
-
         try:
+            runner = ChaosRunner(scenario, target=LocalTarget(), auto_preflight=False)
+            with _REGISTRY_LOCK:
+                _RUNNER_REGISTRY[scenario_id] = runner
             if body.duration:
                 _RUNNER_STATUS[scenario_id] = "active"
                 runner.run(body.duration)

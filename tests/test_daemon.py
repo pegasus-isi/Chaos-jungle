@@ -246,12 +246,20 @@ class TestScenarioRunStop:
             headers=_auth_header(),
         )
         assert resp.status_code == 202
-        # Give the background thread a moment
-        time.sleep(0.3)
-        with _daemon_mod._REGISTRY_LOCK:
-            assert "test-uuid-1234" in _daemon_mod._RUNNER_REGISTRY or \
-                   _daemon_mod._RUNNER_STATUS.get("test-uuid-1234") == "active", \
-                   "Runner should be registered or active"
+        status = c.get("/scenarios/test-uuid-1234/status", headers=_auth_header())
+        assert status.json()["status"] in {"starting", "active"}
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with _daemon_mod._REGISTRY_LOCK:
+                registered = "test-uuid-1234" in _daemon_mod._RUNNER_REGISTRY
+                state = _daemon_mod._RUNNER_STATUS.get("test-uuid-1234")
+            if registered and state == "active":
+                break
+            if state == "error":
+                pytest.fail("Runner failed to start")
+            time.sleep(0.01)
+        else:
+            pytest.fail("Runner did not become active within 5 seconds")
 
     def test_run_when_emergency_stop_active_returns_503(self):
         _daemon_mod._emergency_stop.set()

@@ -62,6 +62,8 @@ def _is_path_allowed(path: str, allowed_paths: list[str]) -> bool:
     """
     if not allowed_paths:
         return True
+    if not os.path.isabs(path):
+        return False
     try:
         real = os.path.realpath(os.path.abspath(path))
     except Exception:

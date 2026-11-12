@@ -55,8 +55,11 @@ class TestIsPathAllowed:
 
     def test_absolute_path_required_for_sensible_check(self):
         """Relative paths should not accidentally be allowed."""
-        # relative path "tmp/foo" resolves relative to CWD — likely not in /tmp
         assert _is_path_allowed("tmp/foo", ["/tmp"]) is False
+
+    def test_relative_path_rejected_inside_allowed_directory(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        assert _is_path_allowed("child", [str(tmp_path)]) is False
 
 
 # ── SafetyPolicy.check_fault ─────────────────────────────────────────────────
