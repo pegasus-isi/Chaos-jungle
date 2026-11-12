@@ -40,6 +40,13 @@ Both jobs are integration smoke checks, not benchmark estimates; their two
 trials per condition are too few for stable latency percentiles or confidence
 intervals.
 
+For live-run diagnosis, the job logs the endpoint scheme, host, port, and
+path, the configured model, and whether an API key is present. It never logs
+the key. GitLab may redact the model value because it is configured as a masked
+variable. These checks run before the baseline request, so an HTTP 403 from
+that request points to endpoint access, authorization, or model permissions,
+not fault injection.
+
 The source distribution is limited to the package, README, license, and build
 metadata. It does not need experiment archives, evaluation data, local virtual
 environments, secrets, or generated results. The `.gitignore` file prevents

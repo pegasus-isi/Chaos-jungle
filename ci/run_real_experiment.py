@@ -72,6 +72,16 @@ def live_model_config() -> tuple[str, str, str]:
         raise ValueError("Live model credentials require HTTPS, except for loopback endpoints")
     if parsed.username or parsed.password:
         raise ValueError("Do not embed credentials in CJ_EVAL_BASE_URL")
+    print(
+        "Live LLM endpoint: scheme={}, host={}, port={}, path={}".format(
+            parsed.scheme, parsed.hostname, parsed.port or "default", parsed.path
+        ),
+        flush=True,
+    )
+    print("Live LLM model: {}".format(model), flush=True)
+    print("Live LLM API key: configured (value not logged)", flush=True)
+    if model != model.strip() or api_key != api_key.strip():
+        print("Warning: model or API key has surrounding whitespace", flush=True)
     return base_url, model, api_key
 
 
