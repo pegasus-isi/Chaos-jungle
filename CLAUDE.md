@@ -84,7 +84,7 @@ wait for branch CI, then push `main` followed by the specific new tag. Pushing
 the tag starts the same GitHub release workflow. Do not automatically push or
 publish from an assistant session without the user's explicit request.
 
-## Optional live LLM experiment on GitLab
+## Automatic LLM experiments on GitLab
 
 GitLab injects these project or group CI/CD variables into the job environment;
 the YAML does not store or define their values:
@@ -98,13 +98,16 @@ the YAML does not store or define their values:
 Configure them in the GitLab project under **Settings > CI/CD > Variables**;
 the default environment scope, **All**, is sufficient. Set the key as masked
 and protected. Keep the endpoint and model protected if they are internal.
-Since the current variables are protected, run the manual
-`real_llm_experiment` job from the protected `main` branch. The job fails before
-installation if a variable is missing; `ci/run_real_experiment.py` then checks
-the URL and uses the values for its live calls. The separate `real_experiment`
-job uses a local mock service and needs no LLM variables. Both jobs run latency,
-503-unavailable, and 429-rate-limit cases after `build_dist`, installing its
-wheel rather than the editable checkout. The manual `resource_cpu_experiment`
+Since the current variables are protected, the three `llm_live_*` jobs run
+automatically only on protected `main`. Each fails before installation if a
+variable is missing; `ci/run_real_experiment.py` then validates the URL and
+uses the values for its live calls. The three `llm_local_*` jobs use a local
+mock service and need no LLM variables. Each job tests one of latency,
+503-unavailable, or 429-rate-limit after `build_dist`, installing its wheel
+rather than the editable checkout. The `agent_tool_result`,
+`agent_tool_result_requests`, and `agent_prompt_input` jobs independently
+check CJ's in-process injection against a local synthetic agent service; they
+also run automatically after the wheel build. The manual `resource_cpu_experiment`
 and `resource_memory_experiment` jobs each use that wheel and run bounded stress
 cases in separate CI job containers. The CPU case pins itself and its
 children to one CPU at low priority; the memory case allocates 64 MiB after a
@@ -112,8 +115,10 @@ headroom check. CJ's opt-in preflight installs `stress-ng` in each container
 before the baseline; the wheel installation does not install the system tool. Neither
 case requires a runner-configured cgroup limit, but neither gives a hard host
 resource limit, so keep both jobs manual on shared runners.
-These jobs are smoke tests, not benchmarks. The live job's database and metrics
-artifact may contain prompts and model responses, so restrict artifact access
-and retention accordingly.
+These jobs are smoke tests, not benchmarks. The live jobs make 24 endpoint
+calls across the three cases per protected-branch pipeline and can fail if the
+external service is unavailable. Their database and metrics artifacts may
+contain prompts and model responses, so restrict artifact access and retention
+accordingly.
 
 See `docs/publishing.md` for the longer release checklist.

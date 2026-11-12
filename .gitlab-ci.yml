@@ -18,7 +18,7 @@ unit_tests:
     - python -m pip install -e ".[dev]"
     - python -m pytest tests/ -q --strict-markers
 
-real_experiment:
+.local_llm_experiment:
   stage: verify
   image: python:3.12-slim
   timeout: 5m
@@ -28,21 +28,33 @@ real_experiment:
   rules:
     - if: '$CI_COMMIT_TAG'
       when: never
-    - when: manual
-      allow_failure: true
+    - when: on_success
   script:
     - python -m pip install dist/*.whl
     - cd /tmp
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault latency --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/latency"
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault unavailable --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/unavailable"
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault rate-limit --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/rate-limit"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault "$CJ_EVAL_FAULT" --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/$CJ_EVAL_FAULT"
   artifacts:
     when: always
     paths:
       - ci-artifacts/real-experiment/
     expire_in: 1 week
 
-real_llm_experiment:
+llm_local_latency:
+  extends: .local_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: latency
+
+llm_local_unavailable:
+  extends: .local_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: unavailable
+
+llm_local_rate_limit:
+  extends: .local_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: rate-limit
+
+.live_llm_experiment:
   stage: verify
   image: python:3.12-slim
   timeout: 10m
@@ -50,11 +62,8 @@ real_llm_experiment:
     - job: build_dist
       artifacts: true
   rules:
-    - if: '$CI_COMMIT_TAG'
-      when: never
-    - if: '$CI_COMMIT_REF_PROTECTED == "true"'
-      when: manual
-      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: on_success
     - when: never
   script:
     # GitLab injects project/group CI variables; do not copy their values into YAML.
@@ -63,14 +72,63 @@ real_llm_experiment:
     - ': "${CJ_EVAL_API_KEY:?Set CJ_EVAL_API_KEY in GitLab CI/CD Variables}"'
     - python -m pip install dist/*.whl
     - cd /tmp
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault latency --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/latency"
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault unavailable --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/unavailable"
-    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault rate-limit --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/rate-limit"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault "$CJ_EVAL_FAULT" --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/$CJ_EVAL_FAULT"
   artifacts:
     when: always
     paths:
       - ci-artifacts/real-llm-experiment/
     expire_in: 1 week
+
+llm_live_latency:
+  extends: .live_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: latency
+
+llm_live_unavailable:
+  extends: .live_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: unavailable
+
+llm_live_rate_limit:
+  extends: .live_llm_experiment
+  variables:
+    CJ_EVAL_FAULT: rate-limit
+
+.agent_use_case:
+  stage: verify
+  image: python:3.12-slim
+  timeout: 5m
+  needs:
+    - job: build_dist
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - when: on_success
+  script:
+    - python -m pip install dist/*.whl
+    - cd /tmp
+    - python "$CI_PROJECT_DIR/ci/run_agent_use_case.py" --case "$CJ_USE_CASE" --output-dir "$CI_PROJECT_DIR/ci-artifacts/agent-use-case/$CJ_USE_CASE"
+  artifacts:
+    when: always
+    paths:
+      - ci-artifacts/agent-use-case/
+    expire_in: 1 week
+
+agent_tool_result:
+  extends: .agent_use_case
+  variables:
+    CJ_USE_CASE: tool-result
+
+agent_tool_result_requests:
+  extends: .agent_use_case
+  variables:
+    CJ_USE_CASE: tool-result-requests
+
+agent_prompt_input:
+  extends: .agent_use_case
+  variables:
+    CJ_USE_CASE: prompt-input
 
 .resource_experiment:
   stage: verify
@@ -113,6 +171,7 @@ lint:
     - python ci/check_ruff_baseline.py
     - python -m ruff check ci/run_real_experiment.py
     - python -m ruff check ci/run_resource_experiment.py ci/resource_workload.py
+    - python -m ruff check ci/run_agent_use_case.py
 
 docs_build:
   stage: test

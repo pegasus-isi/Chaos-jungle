@@ -13,28 +13,38 @@ the exact files that would be published. Runtime scripts under
 The `docs_build` job also renders this Sphinx manual and makes its HTML output
 available as a GitLab job artifact for review.
 
-The optional `real_experiment` job runs bounded integration experiments in its
-disposable CI container. It sends real HTTP calls through CJ's model proxy to
-a local, deterministic OpenAI-compatible service, comparing baseline calls
-with three separate fault scenarios: 120 ms latency, HTTP 503 unavailability,
-and HTTP 429 rate limiting. It does not call an external LLM or require API
-credentials. Start it manually from a branch pipeline. Each scenario has its
-own SQLite session database, `metrics.json` (including the fault's declared
-default metrics and exposure report), and `summary.txt` under
-`ci-artifacts/real-experiment/`. The job checks the expected response,
-exposure, and cleanup; it is optional, so a skipped or failed experiment does
-not block packaging.
+The automatic `llm_local_latency`, `llm_local_unavailable`, and
+`llm_local_rate_limit` jobs run bounded integration experiments in disposable
+CI containers after `build_dist`. They send HTTP calls through CJ's model
+proxy to a local, deterministic OpenAI-compatible service, comparing baseline
+calls with 120 ms latency, HTTP 503 unavailability, or HTTP 429 rate limiting.
+They need no API credentials. Each job saves its own SQLite session database,
+`metrics.json` (including default metrics and an exposure report), and
+`summary.txt` under `ci-artifacts/real-experiment/<fault>/`. A failed exposure
+or cleanup check fails that job.
+
+The automatic `agent_tool_result`, `agent_tool_result_requests`, and
+`agent_prompt_input` jobs exercise CJ's in-process `inject(...)` path against
+another local HTTP service. The first two use HTTPX and Requests respectively
+to replace a search tool's result without changing HTTP 200; the third changes
+an outgoing user prompt. Each case checks the request seen by the service, the
+resulting answer, the trace, and the restored behavior after the block exits.
+Its database, metrics, and summary are under `ci-artifacts/agent-use-case/`.
+These are synthetic agent-workflow checks, not tests of a particular model's
+judgment or of a third-party agent framework.
 
 For an actual model endpoint, set `CJ_EVAL_BASE_URL` to an OpenAI-compatible
 base URL ending in `/v1`, `CJ_EVAL_MODEL` to a model name, and
-`CJ_EVAL_API_KEY` to a masked GitLab CI/CD variable. Then start the separate
-manual `real_llm_experiment` job from a protected branch such as `main` when
-using protected variables. GitLab injects these variables into the job; the
-YAML checks that they are present but never contains their values. The live
-job repeats the same three scenarios, with a 250 ms delay in the latency case
-and a small token limit on requests. Each case has two baseline and two fault
-trials, with two model calls per trial. Its artifact has a separate database,
-JSON metrics, and summary for each case. The endpoint
+`CJ_EVAL_API_KEY` to a masked, protected GitLab CI/CD variable. The separate
+`llm_live_latency`, `llm_live_unavailable`, and `llm_live_rate_limit` jobs run
+automatically only on the protected default branch. They fail early if a
+variable is missing. GitLab injects the values; the YAML never stores them.
+The live jobs use a 250 ms delay in the latency case and a small token limit
+on requests. Each job has two baseline and two fault trials, with two model
+calls per trial (eight endpoint calls per job, 24 across all three). They
+produce separate databases, JSON metrics, and summaries. A live endpoint
+outage, authorization failure, or changed model behavior can now fail the
+protected-branch pipeline; these jobs also consume endpoint quota. The endpoint
 must be reachable from the Docker runner; loopback URLs refer to the job
 container, not your laptop. The database captures the synthetic prompt and
 model response, so restrict artifact access if those responses are sensitive.
@@ -63,7 +73,7 @@ is required, but affinity and low priority are not hard host isolation: keep
 this job manual on shared runners. These short comparisons are smoke checks,
 not performance estimates.
 
-For live-run diagnosis, the job logs the endpoint scheme, host, port, and
+For live-run diagnosis, each job logs the endpoint scheme, host, port, and
 path, the configured model, and whether an API key is present. It never logs
 the key. GitLab may redact the model value because it is configured as a masked
 variable. These checks run before the baseline request, so an HTTP 403 from

@@ -6,6 +6,7 @@ import os
 import pytest
 
 from ci.run_real_experiment import run_experiment as run_model_experiment
+from ci.run_agent_use_case import run_case as run_agent_case
 from ci.run_resource_experiment import (
     container_memory_mb,
     memory_headroom_mb,
@@ -32,6 +33,24 @@ def test_local_model_experiment(tmp_path, fault_name, expected_status):
         assert report["fault"]["success"] == 1
     else:
         assert report["fault"]["http_{}_count".format(expected_status)] > 0
+
+
+@pytest.mark.parametrize("case", ["tool-result", "tool-result-requests", "prompt-input"])
+def test_agent_use_case(tmp_path, case):
+    output_dir = tmp_path / case
+    run_agent_case(output_dir, case)
+
+    report = json.loads((output_dir / "metrics.json").read_text())
+    assert report["observed_metrics"]["http_calls"] == 1
+    assert report["exposure_report"]["verdict"] == "valid"
+    assert report["evidence"] == {
+        "request_modified": True,
+        "restored": True,
+        "fault_trace_count": 1,
+        "trace_modified": True,
+    }
+    assert (output_dir / "session.db").is_file()
+    assert (output_dir / "summary.txt").is_file()
 
 
 def test_resource_stress_requires_container_marker(tmp_path, monkeypatch):

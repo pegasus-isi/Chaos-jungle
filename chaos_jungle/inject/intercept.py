@@ -333,16 +333,23 @@ def _rebuild_request(original: Any, new_body: bytes) -> Any:
     """Return a copy of *original* HTTP request with *new_body* as content."""
     try:
         if _HAS_HTTPX and isinstance(original, _httpx.Request):
+            headers = {
+                name: value for name, value in original.headers.items()
+                if name.lower() not in {"content-length", "transfer-encoding"}
+            }
             return _httpx.Request(
                 original.method,
                 original.url,
-                headers=dict(original.headers),
+                headers=headers,
                 content=new_body,
             )
         if _HAS_REQUESTS and hasattr(original, "body"):
             import copy as _copy
             r = _copy.copy(original)
             r.body = new_body
+            r.headers = _copy.copy(original.headers)
+            r.headers.pop("Transfer-Encoding", None)
+            r.headers["Content-Length"] = str(len(new_body))
             return r
     except Exception:
         pass
@@ -765,7 +772,7 @@ class ToolMutate(Behavior):
         if request is None:
             return request
         try:
-            body = getattr(request, "content", None) or b""
+            body = getattr(request, "content", None) or getattr(request, "body", None) or b""
             if not body:
                 return request
             rb  = json.loads(body)
@@ -873,7 +880,7 @@ class PromptInjection(Behavior):
         if request is None:
             return request
         try:
-            body = getattr(request, "content", None) or b""
+            body = getattr(request, "content", None) or getattr(request, "body", None) or b""
             if not body:
                 return request
             rb   = json.loads(body)
