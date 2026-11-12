@@ -121,4 +121,25 @@ external service is unavailable. Their database and metrics artifacts may
 contain prompts and model responses, so restrict artifact access and retention
 accordingly.
 
+## Skill-guided test strategy on GitLab
+
+`skill_strategy_swarmplus` runs after `build_dist` on protected `main`. It clones
+the public `swarm-workflows/SwarmAgents` default branch and records its exact
+revision. `ci/generate_skill_strategy.py` inventories tracked source files,
+excludes bulk results and secret-shaped paths, and sends a bounded summary
+along with the two repository skills and relevant references to the configured
+OpenAI-compatible model. It uses the same protected `CJ_EVAL_BASE_URL`,
+`CJ_EVAL_MODEL`, and `CJ_EVAL_API_KEY` variables as the live LLM smoke tests.
+The model sees selected public repository content; it does not get shell access.
+
+Download the `ci-artifacts/skill-strategy/` artifact to review
+`repository-inventory.json`, `strategy.json`, and `strategy.md`. The generator
+checks the output shape and source-path citations; a human must still assess
+whether each proposed fault, metric, and safety boundary is scientifically
+appropriate. The job does not execute the strategy or inject faults. It is
+initially allowed to fail without blocking the package pipeline because the
+external model can be unavailable or return malformed JSON. The artifact
+captures the SWARM+ revision and skill hashes, so a strategy can be traced to
+the exact inputs. Local, uncommitted SWARM+ changes are not visible in GitLab.
+
 See `docs/publishing.md` for the longer release checklist.

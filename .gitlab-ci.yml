@@ -172,6 +172,7 @@ lint:
     - python -m ruff check ci/run_real_experiment.py
     - python -m ruff check ci/run_resource_experiment.py ci/resource_workload.py
     - python -m ruff check ci/run_agent_use_case.py
+    - python -m ruff check ci/generate_skill_strategy.py
 
 docs_build:
   stage: test
@@ -237,3 +238,29 @@ dependency_install:
     - cd /tmp
     - chaos-jungle deps install --all --yes
     - chaos-jungle deps check --all
+
+skill_strategy_swarmplus:
+  stage: verify
+  image: python:3.12-slim
+  timeout: 10m
+  needs:
+    - job: build_dist
+      artifacts: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      when: on_success
+      allow_failure: true
+    - when: never
+  script:
+    - ': "${CJ_EVAL_BASE_URL:?Set CJ_EVAL_BASE_URL in GitLab CI/CD Variables}"'
+    - ': "${CJ_EVAL_MODEL:?Set CJ_EVAL_MODEL in GitLab CI/CD Variables}"'
+    - ': "${CJ_EVAL_API_KEY:?Set CJ_EVAL_API_KEY in GitLab CI/CD Variables}"'
+    - apt-get update
+    - apt-get install -y --no-install-recommends git
+    - git clone --depth 1 https://github.com/swarm-workflows/SwarmAgents.git ci-strategy-target
+    - python ci/generate_skill_strategy.py --repo ci-strategy-target --skills-dir skills --cj-root . --output-dir ci-artifacts/skill-strategy
+  artifacts:
+    when: always
+    paths:
+      - ci-artifacts/skill-strategy/
+    expire_in: 1 week
