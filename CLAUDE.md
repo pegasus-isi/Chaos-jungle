@@ -34,7 +34,7 @@ from an isolated environment:
 DIST_DIR="$(mktemp -d)"
 python -m build --outdir "$DIST_DIR"
 python -m twine check "$DIST_DIR"/*
-python ci/build_skill_archives.py --version 0.1.0a0 --output-dir "$DIST_DIR"
+python ci/build_skill_bundle.py --version 0.1.0a0 --output-dir "$DIST_DIR"
 python -m venv "$DIST_DIR/venv"
 "$DIST_DIR/venv/bin/python" -m pip install "$DIST_DIR"/*.whl
 "$DIST_DIR/venv/bin/python" -c 'from importlib.metadata import version; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__'
@@ -54,9 +54,10 @@ Jungle > Run workflow** on `main` with `tag` set to `v0.1.0a0`.
 
 The workflow checks the existing tag against the package version and `main`,
 runs Python 3.9-3.12 tests on Ubuntu 24.04, builds and checks the wheel and
-source distribution plus two separate skill ZIPs, and creates a GitHub
-prerelease with all four assets. No job publishes to PyPI. Check the GitHub
-Release page and download the four assets after the workflow succeeds.
+source distribution, and creates a GitHub prerelease with those two assets.
+The separate `skills-v0.1.0a0` tag runs `.github/workflows/skills-release.yml`,
+which publishes one ZIP containing both skills. No job publishes to PyPI.
+Check both GitHub Releases after the workflows succeed.
 
 ## Later alpha and beta versions
 

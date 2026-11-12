@@ -10,9 +10,9 @@ A generic chaos engineering framework for injecting faults into distributed syst
 Paper-specific evaluation code and reproduction scripts are maintained on the
 [evaluation branch](https://github.com/pegasus-isi/Chaos-jungle/tree/evaluation).
 
-Optional [AI-assistant skills](https://github.com/pegasus-isi/Chaos-jungle/releases)
-for fault injection and evaluation are distributed as separate, versioned ZIP
-files on each GitHub release. They are not installed by `pip`; see the
+Optional [AI-assistant skills](https://github.com/pegasus-isi/Chaos-jungle/releases/tag/skills-v0.1.0a0)
+for fault injection and evaluation are distributed together in one ZIP under
+the separate `skills-v0.1.0a0` release tag. They are not installed by `pip`; see the
 [skill installation guide](docs/guides/choosing-injection.rst#optional-ai-assistant-skills).
 
 ---

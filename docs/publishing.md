@@ -89,11 +89,12 @@ local artifacts from being committed; the Hatchling `sdist` allowlist controls
 what enters a source release. Check both before each release.
 
 The two AI-assistant skills are released independently of the Python package.
-`ci/build_skill_archives.py` creates one versioned ZIP per skill, preserving
-its `SKILL.md` and supporting files under one top-level skill directory.
-These ZIPs are GitHub Release assets, not PyPI distribution files. Build them
-locally with `python ci/build_skill_archives.py --version 0.1.0a0 --output-dir dist`
-and inspect the archive entries before tagging.
+`ci/build_skill_bundle.py` creates one versioned ZIP with both complete
+skill directories, preserving each `SKILL.md` and its supporting files.
+The ZIP is attached to a GitHub Release tagged `skills-v<package-version>`,
+not to the Python package release. Build it locally with
+`python ci/build_skill_bundle.py --version 0.1.0a0 --output-dir dist` and
+inspect the archive entries before tagging.
 
 To test a release locally, use a virtual environment with Python 3.10 or newer:
 
@@ -125,8 +126,12 @@ For a GitHub release, inspect a fresh local build and confirm that the tag
 points to the intended commit on `main`. Pushing a new version tag runs
 `.github/workflows/release.yml`. It tests Python 3.9-3.12 on Ubuntu 24.04,
 checks the tag and package versions, builds and checks the wheel, source
-distribution, and two standalone skill ZIPs, then creates a GitHub prerelease
-with all four assets. PyPI publishing is not configured.
+distribution, then creates a GitHub prerelease with those two Python assets.
+PyPI publishing is not configured. For skills, push the separate annotated
+`skills-v<package-version>` tag after reviewing the skill content on `main`.
+`.github/workflows/skills-release.yml` checks that tag and builds a single
+ZIP containing both skill folders. Its GitHub prerelease contains only that
+ZIP. The package wheel and source distribution are not rebuilt for this tag.
 
 If the workflow attached to an existing tag failed, do not force-push the tag.
 After fixing the workflow on `main`, use **Actions > Release Chaos Jungle > Run

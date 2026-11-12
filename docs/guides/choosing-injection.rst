@@ -194,16 +194,15 @@ skill covers workloads, controls, outcome metrics, and analysis.  They are
 optional instructions, not part of the Python wheel or a replacement for
 runtime verification.
 
-Download the matching, versioned ZIP files from the `GitHub release
-<https://github.com/pegasus-isi/Chaos-jungle/releases>`_.  Each archive
-contains one complete skill directory.  For Codex, extract the downloaded
-archives into ``~/.agents/skills/`` for your user or ``.agents/skills/`` in
-one project.  For example, with the first alpha release:
+Download the single ZIP from the matching `skills release
+<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/skills-v0.1.0a0>`_.
+It contains both complete skill directories.  For Codex, extract the
+downloaded archive into ``~/.agents/skills/`` for your user or
+``.agents/skills/`` in one project.  For example, with the first alpha:
 
 .. code-block:: bash
 
-   unzip chaos-jungle-injection-v0.1.0a0.zip -d ~/.agents/skills/
-   unzip chaos-jungle-evaluation-v0.1.0a0.zip -d ~/.agents/skills/
+   unzip chaos-jungle-skills-v0.1.0a0.zip -d ~/.agents/skills/
 
 Start a new Codex session after installation.  The skills do not install CJ;
 install the matching Python package separately.  Other assistants with

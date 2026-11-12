@@ -17,8 +17,13 @@ downloaded file inside a virtual environment:
    . .venv/bin/activate
    python -m pip install ./chaos_jungle-0.1.0a0-py3-none-any.whl
 
-The two optional AI-assistant skill ZIPs are separate downloads from the
-same release; installing the Python wheel does not install the skills.
+The optional AI-assistant skills are in one ZIP under the separate
+`skills-v0.1.0a0 release
+<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/skills-v0.1.0a0>`_.
+Installing the Python wheel does not install the skills.  The wheel's
+``py3-none-any`` suffix means its Python code has no compiled ABI or
+platform-specific wheel restriction; infrastructure faults still have
+target-specific Linux commands and privileges.
 
 Install the current source
 --------------------------
