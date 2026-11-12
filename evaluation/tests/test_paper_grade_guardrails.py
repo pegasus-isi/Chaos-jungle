@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import csv
 import copy
+import hashlib
 import inspect
 import json
+import subprocess
+from pathlib import Path
 
 from chaos_jungle.scripts.llm_proxy import llm_proxy
 from evaluation.docker_runner import DockerAgentRunner, DockerExecutionConfig
@@ -946,6 +949,67 @@ def test_scenario_scripts_use_nested_checkpoints_for_resume():
         assert "cj_eval_backfill_checkpoint_from_run_dir" in script, path
 
 
+def test_checkpoint_paths_hash_only_oversized_keys():
+    common = Path("evaluation/scripts/common.sh").resolve()
+    long_key = "distributed-native-multi-agent-smoke:" + ("scenario-segment-" * 30)
+    command = r'''
+source "$1"
+export CJ_EVAL_EXPERIMENT_RUN="checkpoint-path-test"
+printf '%s\n' "$(cj_eval_checkpoint_path "$2")"
+printf '%s\n' "$(cj_eval_checkpoint_path "$2")"
+printf '%s\n' "$(cj_eval_checkpoint_path 'short-key')"
+'''
+    completed = subprocess.run(
+        ["bash", "-c", command, "checkpoint-test", str(common), long_key],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    long_path_1, long_path_2, short_path = completed.stdout.splitlines()
+
+    assert long_path_1 == long_path_2
+    assert len(Path(long_path_1).name.encode("utf-8")) < 255
+    assert hashlib.sha256(long_key.encode("utf-8")).hexdigest()[:16] in long_path_1
+    assert Path(short_path).name == "short-key.done.json"
+
+
+def test_run_directories_compact_long_names_and_find_existing_legacy_names(tmp_path):
+    common = Path("evaluation/scripts/common.sh").resolve()
+    long_name = "distributed-scenario-" + ("descriptive-segment-" * 12)
+    legacy_name = "legacy-" + ("descriptive-segment-" * 8)
+    command = r'''
+source "$1"
+export CJ_EVAL_RESULTS_ROOT="$2"
+export CJ_EVAL_EXPERIMENT_RUN="compact-name-test"
+compact_dir="$(cj_eval_make_run_dir 'distributed-native-multi-agent-smoke' "$3")"
+legacy_dir="$(cj_eval_results_root)/distributed-native-multi-agent-smoke/$(cj_eval_slug "$4")"
+mkdir -p "$legacy_dir"
+printf 'complete\n' > "$legacy_dir/runs.jsonl"
+printf '%s\n' "$compact_dir"
+printf '%s\n' "$(cj_eval_find_completed_run_dir 'distributed-native-multi-agent-smoke' "$4" 'runs.jsonl')"
+'''
+    completed = subprocess.run(
+        [
+            "bash",
+            "-c",
+            command,
+            "run-dir-test",
+            str(common),
+            str(tmp_path),
+            long_name,
+            legacy_name,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    compact_dir, found_legacy_dir = completed.stdout.splitlines()
+
+    assert len(Path(compact_dir).name.encode("utf-8")) < 255
+    assert hashlib.sha256(long_name.encode("utf-8")).hexdigest()[:16] in compact_dir
+    assert Path(found_legacy_dir).name == legacy_name.rstrip("-")
+
+
 def test_docker_image_debug_script_runs_without_credentials_or_docker_socket_mount():
     script = open("evaluation/scripts/debug_docker_image.sh", encoding="utf-8").read()
 
@@ -1021,6 +1085,28 @@ def test_process_container_smoke_uses_procfs_not_procps_tools():
     assert "/proc/[0-9]*" in script
     assert "find_sleep_pids" in script
     assert "time.sleep(300)' & while true" in script
+
+
+def test_controlled_infrastructure_campaign_is_bounded_and_triplet_paired():
+    script = open(
+        "evaluation/scripts/run_controlled_infrastructure_resilience.sh",
+        encoding="utf-8",
+    ).read()
+
+    for token in (
+        "infrastructure_controlled",
+        "CJ_EVAL_DISTRIBUTED_NATIVE_TRIPLET=1",
+        "role-process termination",
+        "--network-delay-ms",
+        "--network-loss-pct",
+        "--memory-pressure-mb",
+        "--target-role",
+        "CJ_EVAL_DISTRIBUTED_FAULT_TARGET_ROLE",
+    ):
+        assert token in script
+
+    assert 'tasks="${CJ_EVAL_TASKS:-3}"' in script
+    assert 'topologies="${CJ_EVAL_TOPOLOGIES:-linear}"' in script
 
 
 def test_unsupported_experiment_writer_prevents_silent_missing_categories():

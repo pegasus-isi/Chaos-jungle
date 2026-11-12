@@ -22,7 +22,8 @@ Options:
   --tasks N             Number of tasks. Default: 1.
   --task-selection-seed N Fixed task-manifest seed. Default: 17.
   --fault NAME          Distributed fault or suite. Default: none.
-  --fault-suite NAME    smoke, communication, role_local, coordination, or all.
+  --fault-suite NAME    smoke, communication, role_local, coordination,
+                        infrastructure_controlled, or all.
   --triplet             Run direct/control/fault records for the selected fault.
   --fault-target-role R Target role for role-local or misrouting faults. Default: coder.
   --fault-from-role R   Handoff source role for communication faults. Default: planner.
@@ -30,6 +31,10 @@ Options:
   --fault-severity S    low, medium, or high. Default: medium.
   --fault-duration S    Coordinated pressure duration in seconds. Default: 300.
   --maximum-skew-ms N   Coordinated activation-skew limit. Default: 100.
+  --network-delay-ms N  Role-network delay for the controlled suite. Default: 150.
+  --network-loss-pct N  Role-network packet loss percentage. Default: 10.
+  --memory-pressure-mb N Role memory allocation in MiB. Default: 256.
+  --process-trigger-timeout N Seconds to wait for the real role process. Default: 45.
   --proxy-port N         Preferred proxy-port pool hint. Default: 20600.
   --dry-run             Use deterministic no-model native-role responses.
   --results-run NAME    Result folder under results/.
@@ -107,6 +112,22 @@ while [[ $# -gt 0 ]]; do
       export CJ_EVAL_DISTRIBUTED_MAXIMUM_SKEW_MS="$2"
       shift 2
       ;;
+    --network-delay-ms)
+      export CJ_EVAL_DISTRIBUTED_NETWORK_DELAY_MS="$2"
+      shift 2
+      ;;
+    --network-loss-pct)
+      export CJ_EVAL_DISTRIBUTED_NETWORK_LOSS_PCT="$2"
+      shift 2
+      ;;
+    --memory-pressure-mb)
+      export CJ_EVAL_DISTRIBUTED_MEMORY_PRESSURE_MB="$2"
+      shift 2
+      ;;
+    --process-trigger-timeout)
+      export CJ_EVAL_DISTRIBUTED_PROCESS_TRIGGER_TIMEOUT_S="$2"
+      shift 2
+      ;;
     --proxy-port)
       export CJ_EVAL_DISTRIBUTED_PROXY_PORT="$2"
       shift 2
@@ -162,6 +183,10 @@ fault_to_role="${CJ_EVAL_DISTRIBUTED_FAULT_TO_ROLE:-coder}"
 fault_severity="${CJ_EVAL_DISTRIBUTED_FAULT_SEVERITY:-medium}"
 fault_duration_s="${CJ_EVAL_DISTRIBUTED_FAULT_DURATION_S:-300}"
 maximum_skew_ms="${CJ_EVAL_DISTRIBUTED_MAXIMUM_SKEW_MS:-100}"
+network_delay_ms="${CJ_EVAL_DISTRIBUTED_NETWORK_DELAY_MS:-150}"
+network_loss_pct="${CJ_EVAL_DISTRIBUTED_NETWORK_LOSS_PCT:-10}"
+memory_pressure_mb="${CJ_EVAL_DISTRIBUTED_MEMORY_PRESSURE_MB:-256}"
+process_trigger_timeout_s="${CJ_EVAL_DISTRIBUTED_PROCESS_TRIGGER_TIMEOUT_S:-45}"
 proxy_port="${CJ_EVAL_DISTRIBUTED_PROXY_PORT:-20600}"
 
 cat <<EOF
@@ -221,6 +246,10 @@ for system in ${systems}; do
         --fault-severity "${fault_severity}"
         --fault-duration-s "${fault_duration_s}"
         --maximum-skew-ms "${maximum_skew_ms}"
+        --network-delay-ms "${network_delay_ms}"
+        --network-loss-pct "${network_loss_pct}"
+        --memory-pressure-mb "${memory_pressure_mb}"
+        --process-trigger-timeout-s "${process_trigger_timeout_s}"
         --proxy-port "${proxy_port}"
       )
 

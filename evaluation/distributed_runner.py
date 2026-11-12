@@ -9,6 +9,8 @@ host coordinator's serialized messages.
 from __future__ import annotations
 
 import json
+import re
+import threading
 import time
 import uuid
 from dataclasses import replace
@@ -20,6 +22,8 @@ from evaluation.distributed_faults import (
     DistributedFaultPlan,
     apply_communication_fault,
     role_memory_bytes,
+    role_network_delay_ms,
+    role_network_loss_pct,
     role_pressure_duration_s,
 )
 from evaluation.docker_runner import (
@@ -33,7 +37,9 @@ from evaluation.multi_agent import CLOSED_LOOP, LINEAR, MAX_REVISIONS, ROLE_PROM
 from evaluation.native_multi_agent import NATIVE_MULTI_AGENT_SYSTEMS
 from chaos_jungle.distributed import Injection
 from chaos_jungle.faults.process import ContainerKill
+from chaos_jungle.faults.network import NetworkDelay, NetworkLoss
 from chaos_jungle.faults.resources import CPUStress
+from chaos_jungle.faults.base import VerificationResult
 from chaos_jungle.inject.group import InjectionGroup, InjectionGroupRunner
 from chaos_jungle.targets import DockerContainerControllerTarget, DockerTarget
 
@@ -96,6 +102,117 @@ class _RoleStressHandle:
             observed={"stdout": stdout.strip(), "stderr": stderr.strip()},
             timestamp_s=time.time(),
         )
+
+
+class _RoleProcessKillHandle:
+    """Arm an event-triggered kill for one real role executor process."""
+
+    def __init__(self, target: DockerTarget, *, role: str, timeout_s: float = 45.0) -> None:
+        self.target = target
+        self.role = role
+        self.timeout_s = timeout_s
+        self.killed_pid = ""
+        self.error = ""
+        self._thread: threading.Thread | None = None
+
+    def arm(self) -> None:
+        self._thread = threading.Thread(
+            target=self._watch_and_kill,
+            daemon=True,
+            name=f"cj-role-process-kill-{self.role}",
+        )
+        self._thread.start()
+
+    def _watch_and_kill(self) -> None:
+        timeout = max(1, int(self.timeout_s))
+        command = (
+            f"deadline=$(( $(date +%s) + {timeout} )); "
+            "while [ $(date +%s) -le $deadline ]; do "
+            "for proc in /proc/[0-9]*; do "
+            "pid=${proc##*/}; [ \"$pid\" = 1 ] && continue; "
+            "[ -r \"$proc/cmdline\" ] || continue; "
+            "if tr '\\000' '\\n' < \"$proc/cmdline\" 2>/dev/null "
+            "| grep -Fxq 'evaluation.distributed_entrypoint'; then "
+            "kill -KILL \"$pid\" 2>/dev/null || continue; "
+            "echo killed:$pid; exit 0; fi; done; sleep 0.02; done; "
+            "echo trigger-timeout >&2; exit 2"
+        )
+        code, stdout, stderr = self.target.run(command)
+        match = re.search(r"killed:(\d+)", stdout)
+        if code == 0 and match:
+            self.killed_pid = match.group(1)
+        else:
+            self.error = (stderr or stdout or f"process trigger exited {code}").strip()
+
+    def stop(self, _target: DockerTarget) -> None:
+        if self._thread is not None:
+            self._thread.join(timeout=self.timeout_s + 2.0)
+            if self._thread.is_alive() and not self.error:
+                self.error = "process trigger thread did not finish"
+
+    def verify_active(self, _target: DockerTarget) -> VerificationResult:
+        self.stop(_target)
+        return VerificationResult(
+            verified=bool(self.killed_pid),
+            reason=(
+                f"role executor PID {self.killed_pid} terminated"
+                if self.killed_pid
+                else f"role executor termination not observed: {self.error}"
+            ),
+            observed={"killed_pid": self.killed_pid, "trigger_error": self.error},
+            timestamp_s=time.time(),
+        )
+
+    def verify_recovered(self, target: DockerTarget) -> VerificationResult:
+        code, stdout, stderr = target.run("true")
+        return VerificationResult(
+            verified=code == 0,
+            reason=(
+                "role container accepts a fresh process after executor termination"
+                if code == 0
+                else "role container failed post-termination health probe"
+            ),
+            observed={"probe_exit_code": code, "stdout": stdout, "stderr": stderr},
+            timestamp_s=time.time(),
+        )
+
+
+def _container_memory_snapshot(target: DockerTarget) -> dict[str, int | None]:
+    code, stdout, _ = target.run(
+        "current=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo ''); "
+        "peak=$(cat /sys/fs/cgroup/memory.peak 2>/dev/null || echo ''); "
+        "oom=$(awk '$1 == \"oom_kill\" {print $2}' /sys/fs/cgroup/memory.events 2>/dev/null || echo 0); "
+        "printf '%s,%s,%s\\n' \"$current\" \"$peak\" \"${oom:-0}\""
+    )
+    parts = stdout.strip().split(",") if code == 0 else []
+
+    def integer(index: int) -> int | None:
+        try:
+            return int(parts[index])
+        except (IndexError, TypeError, ValueError):
+            return None
+
+    return {
+        "memory_current_bytes": integer(0),
+        "memory_peak_bytes": integer(1),
+        "oom_kill_count": integer(2),
+    }
+
+
+def _network_probe(target: DockerTarget, *, count: int) -> dict[str, float | str | None]:
+    code, stdout, stderr = target.run(
+        "gateway=$(ip route | awk '/default/ {print $3; exit}'); "
+        f"test -n \"$gateway\" && ping -n -q -c {count} -i 0.02 -W 1 \"$gateway\""
+    )
+    loss_match = re.search(r"([0-9.]+)% packet loss", stdout)
+    rtt_match = re.search(r"=\s*[0-9.]+/([0-9.]+)/", stdout)
+    return {
+        "probe_exit_code": code,
+        "packet_loss_pct": float(loss_match.group(1)) if loss_match else None,
+        "latency_ms": float(rtt_match.group(1)) if rtt_match else None,
+        "probe_stdout": stdout.strip()[-1000:],
+        "probe_stderr": stderr.strip()[-500:],
+    }
 
 
 def benchmark_task_to_dict(task: Any) -> dict[str, Any]:
@@ -520,10 +637,38 @@ class DistributedReferenceRunner:
                     )
             for fault, target, role in role_fault_cleanups:
                 try:
+                    if isinstance(fault, _RoleProcessKillHandle):
+                        active = fault.verify_active(target)
+                        fault_lifecycle["triggered"] = active.verified
+                        fault_lifecycle["manifested"] = active.verified
+                        fault_lifecycle["details"] = active.reason
+                        event = self._host_event(
+                            run_context,
+                            role,
+                            len(trace),
+                            trace_id,
+                            "fault_observed",
+                            fault_type=fault_plan.fault_type,
+                            target_role=role,
+                            verified=active.verified,
+                            reason=active.reason,
+                            observed=active.observed,
+                        )
+                        trace.append(event)
+                        fault_plan.record_evidence(event)
                     fault.stop(target)
                     recovered = fault.verify_recovered(target)
-                    fault_lifecycle["reverted"] = True
+                    fault_lifecycle["reverted"] = not isinstance(
+                        fault,
+                        _RoleProcessKillHandle,
+                    )
                     fault_lifecycle["recovered"] = recovered.verified
+                    if fault_lifecycle["manifested"] and recovered.verified:
+                        fault_lifecycle["verdict"] = "valid"
+                    elif not fault_lifecycle["manifested"]:
+                        fault_lifecycle["verdict"] = "untriggered"
+                    else:
+                        fault_lifecycle["verdict"] = "invalid"
                     trace.append(
                         self._host_event(
                             run_context,
@@ -808,8 +953,6 @@ class DistributedReferenceRunner:
         if not fault_plan.matches_role(role):
             return
         fault_plan.applied = True
-        lifecycle["activated"] = True
-        lifecycle["triggered"] = True
         lifecycle["manifested"] = False
         container = containers[role]
         if not self.docker_runner.is_running(container):
@@ -825,6 +968,8 @@ class DistributedReferenceRunner:
             target.connect()
             fault = ContainerKill(container.container_id, action=str(fault_plan.parameters.get("action", "kill")))
             fault.start(target)
+            lifecycle["activated"] = True
+            lifecycle["triggered"] = True
             active = fault.verify_active(target)
             lifecycle["manifested"] = active.verified
             lifecycle["details"] = active.reason
@@ -846,9 +991,47 @@ class DistributedReferenceRunner:
             fault_plan.record_evidence(event)
             raise RuntimeError(f"{role} container killed by role-local fault")
 
-        target = DockerTarget(container.container_id, docker_bin=self.config.docker_bin)
+        target = DockerTarget(
+            container.container_id,
+            docker_bin=self.config.docker_bin,
+            timeout_s=max(60.0, self.config.timeout_s),
+        )
         target.connect()
         duration_s = role_pressure_duration_s(fault_plan.severity, fault_plan.parameters)
+        observed: dict[str, Any] = {}
+        cleanup_fault: Any
+        if fault_plan.fault_type == "role_process_kill":
+            lifecycle["activated"] = True
+            lifecycle["triggered"] = False
+            process_fault = _RoleProcessKillHandle(
+                target,
+                role=role,
+                timeout_s=float(
+                    fault_plan.parameters.get(
+                        "trigger_timeout_s",
+                        min(60.0, max(15.0, self.config.timeout_s / 2.0)),
+                    )
+                ),
+            )
+            process_fault.arm()
+            lifecycle["details"] = "armed for the next real role executor process"
+            event = self._host_event(
+                run_context,
+                role,
+                step,
+                trace_id,
+                "fault_armed",
+                fault_type=fault_plan.fault_type,
+                target_role=role,
+                container_id=container.container_id,
+                trigger="evaluation.distributed_entrypoint process observed",
+            )
+            event["container_id"] = container.container_id
+            trace.append(event)
+            fault_plan.record_evidence(event)
+            cleanups.append((process_fault, target, role))
+            return
+
         if fault_plan.fault_type == "role_cpu_pressure":
             pid_file = f"/tmp/cj_role_cpu_{role}.pid"
             code, stdout, stderr = target.run(
@@ -859,25 +1042,129 @@ class DistributedReferenceRunner:
                 f"if kill -0 $pid 2>/dev/null; then echo running:$pid; "
                 f"else cat /tmp/cj_role_cpu_{role}.log 2>/dev/null; exit 1; fi"
             )
+            cleanup_fault = _RoleStressHandle(
+                pid_file=pid_file,
+                fault_type=fault_plan.fault_type,
+            )
         elif fault_plan.fault_type == "role_memory_pressure":
             pid_file = f"/tmp/cj_role_mem_{role}.pid"
             mem = role_memory_bytes(fault_plan.severity, fault_plan.parameters)
+            before = _container_memory_snapshot(target)
             code, stdout, stderr = target.run(
-                f"cd /tmp && stress-ng --vm 1 --vm-bytes {mem} --timeout {duration_s}s "
+                f"cd /tmp && stress-ng --vm 1 --vm-bytes {mem} --vm-keep --timeout {duration_s}s "
                 f">/tmp/cj_role_mem_{role}.log 2>&1 & "
-                f"echo $! > {pid_file}; sleep 0.2; "
+                f"echo $! > {pid_file}; sleep 0.75; "
                 f"pid=$(cat {pid_file}); "
                 f"if kill -0 $pid 2>/dev/null; then echo running:$pid; "
                 f"else cat /tmp/cj_role_mem_{role}.log 2>/dev/null; exit 1; fi"
             )
+            after = _container_memory_snapshot(target)
+            requested_match = re.fullmatch(r"(\d+)([KMG])", mem.upper())
+            multiplier = {"K": 1024, "M": 1024**2, "G": 1024**3}
+            requested_bytes = (
+                int(requested_match.group(1)) * multiplier[requested_match.group(2)]
+                if requested_match else None
+            )
+            baseline_bytes = before.get("memory_current_bytes")
+            observed_bytes = after.get("memory_current_bytes")
+            delta_bytes = (
+                int(observed_bytes) - int(baseline_bytes)
+                if baseline_bytes is not None and observed_bytes is not None else None
+            )
+            observed = {
+                "requested_memory": mem,
+                "requested_memory_bytes": requested_bytes,
+                "baseline_memory_bytes": baseline_bytes,
+                "observed_memory_bytes": observed_bytes,
+                "memory_delta_bytes": delta_bytes,
+                "memory_peak_bytes": after.get("memory_peak_bytes"),
+                "oom_kill_count_before": before.get("oom_kill_count"),
+                "oom_kill_count_after": after.get("oom_kill_count"),
+            }
+            cleanup_fault = _RoleStressHandle(
+                pid_file=pid_file,
+                fault_type=fault_plan.fault_type,
+            )
+        elif fault_plan.fault_type in {"role_network_delay", "role_network_loss"}:
+            baseline = _network_probe(target, count=5)
+            if fault_plan.fault_type == "role_network_delay":
+                configured_delay_ms = role_network_delay_ms(
+                    fault_plan.severity,
+                    fault_plan.parameters,
+                )
+                cleanup_fault = NetworkDelay(f"{configured_delay_ms:g}ms", iface="eth0")
+                probe_count = 5
+                observed["configured_delay_ms"] = configured_delay_ms
+            else:
+                configured_loss_pct = role_network_loss_pct(
+                    fault_plan.severity,
+                    fault_plan.parameters,
+                )
+                cleanup_fault = NetworkLoss(f"{configured_loss_pct:g}%", iface="eth0")
+                probe_count = 60
+                observed["configured_loss_pct"] = configured_loss_pct
+            cleanup_fault.start(target)
+            active = cleanup_fault.verify_active(target)
+            fault_probe = _network_probe(target, count=probe_count)
+            code = 0 if active.verified else 1
+            stdout = active.reason
+            stderr = "" if active.verified else active.reason
+            observed.update({
+                "baseline_latency_ms": baseline.get("latency_ms"),
+                "baseline_packet_loss_pct": baseline.get("packet_loss_pct"),
+                "observed_latency_ms": fault_probe.get("latency_ms"),
+                "observed_packet_loss_pct": fault_probe.get("packet_loss_pct"),
+                "tc_verification": active.observed,
+                "network_probe": fault_probe,
+            })
         else:
             target.disconnect()
             raise ValueError(f"unsupported role-local fault: {fault_plan.fault_type}")
-        manifested = code == 0 and "running:" in stdout
+
+        lifecycle["activated"] = code == 0
+        lifecycle["triggered"] = code == 0
+
+        if fault_plan.fault_type == "role_memory_pressure":
+            requested = observed.get("requested_memory_bytes")
+            delta = observed.get("memory_delta_bytes")
+            manifested = bool(
+                code == 0
+                and "running:" in stdout
+                and isinstance(requested, int)
+                and isinstance(delta, int)
+                and delta >= max(8 * 1024**2, int(requested * 0.10))
+            )
+        elif fault_plan.fault_type == "role_network_delay":
+            baseline_latency = observed.get("baseline_latency_ms")
+            fault_latency = observed.get("observed_latency_ms")
+            configured = observed.get("configured_delay_ms")
+            manifested = bool(
+                code == 0
+                and isinstance(baseline_latency, (int, float))
+                and isinstance(fault_latency, (int, float))
+                and isinstance(configured, (int, float))
+                and float(fault_latency) - float(baseline_latency) >= float(configured) * 0.5
+            )
+        elif fault_plan.fault_type == "role_network_loss":
+            baseline_loss = observed.get("baseline_packet_loss_pct")
+            observed_loss = observed.get("observed_packet_loss_pct")
+            configured = observed.get("configured_loss_pct")
+            manifested = bool(
+                code == 0
+                and isinstance(baseline_loss, (int, float))
+                and isinstance(observed_loss, (int, float))
+                and isinstance(configured, (int, float))
+                and float(observed_loss) - float(baseline_loss) >= float(configured) * 0.25
+            )
+        else:
+            manifested = code == 0 and "running:" in stdout
         lifecycle["manifested"] = manifested
         lifecycle["reverted"] = False
         lifecycle["recovered"] = False
-        lifecycle["details"] = "stress-ng process observed" if manifested else (stderr or stdout)
+        lifecycle["details"] = (
+            "objective role-local fault effect observed"
+            if manifested else (stderr or stdout or "fault effect was not measured")
+        )
         event = self._host_event(
             run_context,
             role,
@@ -891,15 +1178,12 @@ class DistributedReferenceRunner:
             stdout=stdout.strip()[:500],
             stderr=stderr.strip()[:500],
             duration_s=duration_s,
+            observed=observed,
         )
         event["container_id"] = container.container_id
         trace.append(event)
         fault_plan.record_evidence(event)
-        cleanups.append((
-            _RoleStressHandle(pid_file=pid_file, fault_type=fault_plan.fault_type),
-            target,
-            role,
-        ))
+        cleanups.append((cleanup_fault, target, role))
 
     def _prepare_role_containers(
         self,

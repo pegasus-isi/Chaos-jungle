@@ -35,6 +35,16 @@ if [[ "${CJ_EVAL_RUN_DOCKER_TESTS:-0}" == "1" ]]; then
   "${script_dir}/run_docker_integration_tests.sh"
 fi
 
+if [[ "${CJ_EVAL_RUN_STRATEGIES:-1}" == "1" ]]; then
+  strategy_profile="paper"
+  if [[ "${profile}" == "smoke" ]]; then
+    strategy_profile="smoke"
+  fi
+  "${script_dir}/run_strategy_evaluation.sh" \
+    --profile "${CJ_EVAL_STRATEGY_PROFILE:-${strategy_profile}}" \
+    --results-run "${CJ_EVAL_EXPERIMENT_RUN}"
+fi
+
 case "${profile}" in
   smoke)
     CJ_EVAL_TASKS="${CJ_EVAL_TASKS:-1}" \

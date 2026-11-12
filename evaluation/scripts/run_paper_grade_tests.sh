@@ -220,7 +220,7 @@ cj_eval_checkpoint_dir() {
 
 cj_eval_checkpoint_path() {
   local key="$1"
-  echo "$(cj_eval_checkpoint_dir)/$(cj_eval_slug "${key}").done.json"
+  echo "$(cj_eval_checkpoint_dir)/$(cj_eval_compact_slug "${key}").done.json"
 }
 
 cj_eval_mark_stage_done() {

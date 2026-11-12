@@ -51,6 +51,7 @@ cat <<EOF
 [cj-eval] multi suites       : ${multi_suites}
 [cj-eval] distributed native : ${distributed_native_fault}
 [cj-eval] infra faults       : ${infra_faults}
+[cj-eval] strategy fidelity  : ${CJ_EVAL_RUN_STRATEGIES:-1}
 EOF
 
 if [[ "${CJ_EVAL_RUN_STATIC:-1}" == "1" ]]; then
@@ -59,6 +60,12 @@ fi
 
 if [[ "${CJ_EVAL_RUN_DOCKER_TESTS:-1}" == "1" ]]; then
   "${script_dir}/run_docker_integration_tests.sh"
+fi
+
+if [[ "${CJ_EVAL_RUN_STRATEGIES:-1}" == "1" ]]; then
+  "${script_dir}/run_strategy_evaluation.sh" \
+    --profile "${CJ_EVAL_STRATEGY_PROFILE:-paper}" \
+    --results-run "${CJ_EVAL_EXPERIMENT_RUN}"
 fi
 
 CJ_EVAL_SYSTEM="${single_system}" \

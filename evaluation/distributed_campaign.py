@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import dataclasses
 import json
 import os
+import re
 import statistics
 import time
 import uuid
@@ -82,12 +84,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--fault-suite",
-        choices=["smoke", "communication", "role_local", "coordination", "all"],
+        choices=[
+            "smoke", "communication", "role_local", "coordination",
+            "infrastructure_controlled", "all",
+        ],
         help="Named distributed fault suite",
     )
     p.add_argument("--fault-severity", default="medium", choices=["low", "medium", "high"])
     p.add_argument("--fault-duration-s", type=float, default=300.0)
     p.add_argument("--maximum-skew-ms", type=float, default=100.0)
+    p.add_argument("--network-delay-ms", type=float, default=150.0)
+    p.add_argument("--network-loss-pct", type=float, default=10.0)
+    p.add_argument("--memory-pressure-mb", type=int, default=256)
+    p.add_argument("--process-trigger-timeout-s", type=float, default=45.0)
     p.add_argument("--fault-target-role", default="coder")
     p.add_argument("--fault-from-role", default="planner")
     p.add_argument("--fault-to-role", default="coder")
@@ -99,6 +108,12 @@ DISTRIBUTED_FAULT_SUITES = {
     "communication": sorted(COMMUNICATION_FAULTS),
     "role_local": sorted(ROLE_LOCAL_FAULTS),
     "coordination": sorted(COORDINATED_GROUP_FAULTS),
+    "infrastructure_controlled": [
+        "role_network_delay",
+        "role_network_loss",
+        "role_memory_pressure",
+        "role_process_kill",
+    ],
     "all": sorted(COMMUNICATION_FAULTS | ROLE_LOCAL_FAULTS | COORDINATED_GROUP_FAULTS),
 }
 
@@ -138,12 +153,74 @@ def _distributed_fault_config(args: argparse.Namespace, fault_name: str) -> dict
             config.setdefault("misroute_to", args.fault_target_role)
     if fault_name in ROLE_LOCAL_FAULTS:
         config["target_role"] = args.fault_target_role
+        parameters: dict[str, Any] = {"duration_s": args.fault_duration_s}
+        if fault_name == "role_network_delay":
+            parameters["delay_ms"] = args.network_delay_ms
+        elif fault_name == "role_network_loss":
+            parameters["loss_pct"] = args.network_loss_pct
+        elif fault_name == "role_memory_pressure":
+            parameters["memory_bytes"] = f"{args.memory_pressure_mb}M"
+            parameters["memory_mb"] = args.memory_pressure_mb
+        elif fault_name == "role_process_kill":
+            parameters["trigger_timeout_s"] = args.process_trigger_timeout_s
+            parameters["process_pattern"] = "evaluation.distributed_entrypoint"
+            parameters["signal"] = "KILL"
+        config["parameters"] = parameters
     if fault_name in COORDINATED_GROUP_FAULTS:
         config["parameters"] = {
             "duration_s": args.fault_duration_s,
             "maximum_skew_ms": args.maximum_skew_ms,
         }
     return config
+
+
+def _required_capabilities(fault_names: list[str]) -> list[str]:
+    """Return the minimum container capabilities required by the selected faults."""
+    if any(name in {"role_network_delay", "role_network_loss"} for name in fault_names):
+        return ["NET_ADMIN"]
+    return []
+
+
+def _memory_limit_mib(value: str) -> float | None:
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kmgt]?)b?\s*", value, re.IGNORECASE)
+    if not match:
+        return None
+    amount = float(match.group(1))
+    unit = match.group(2).lower()
+    multiplier = {"": 1 / (1024**2), "k": 1 / 1024, "m": 1, "g": 1024, "t": 1024**2}
+    return amount * multiplier[unit]
+
+
+def _validate_distributed_args(args: argparse.Namespace) -> None:
+    """Reject unsafe or scientifically ambiguous campaign parameters."""
+    if args.tasks < 1:
+        raise ValueError("--tasks must be at least 1")
+    if args.cpus <= 0:
+        raise ValueError("--cpus must be greater than 0")
+    if args.fault_duration_s <= 0:
+        raise ValueError("--fault-duration-s must be greater than 0")
+    if args.network_delay_ms <= 0:
+        raise ValueError("--network-delay-ms must be greater than 0")
+    if not 0 < args.network_loss_pct <= 100:
+        raise ValueError("--network-loss-pct must be in (0, 100]")
+    if args.memory_pressure_mb < 8:
+        raise ValueError("--memory-pressure-mb must be at least 8 MiB")
+    if args.process_trigger_timeout_s <= 0:
+        raise ValueError("--process-trigger-timeout-s must be greater than 0")
+    for option, role in (
+        ("--fault-target-role", args.fault_target_role),
+        ("--fault-from-role", args.fault_from_role),
+        ("--fault-to-role", args.fault_to_role),
+    ):
+        if role not in {"planner", "coder", "reviewer"}:
+            raise ValueError(f"{option} must be planner, coder, or reviewer")
+    limit_mib = _memory_limit_mib(args.memory)
+    if limit_mib is None:
+        raise ValueError("--memory must use a Docker size such as 512m or 2g")
+    if args.memory_pressure_mb > limit_mib * 0.75:
+        raise ValueError(
+            "--memory-pressure-mb must not exceed 75% of the container memory limit"
+        )
 
 
 def _task_complexity_fields(task: Any) -> dict[str, Any]:
@@ -309,6 +386,194 @@ def write_distributed_coordination_outputs(records: list[dict[str, Any]], result
         writer.writerows(rows)
 
 
+CONTROLLED_INFRASTRUCTURE_FAULTS = {
+    "role_network_delay",
+    "role_network_loss",
+    "role_memory_pressure",
+    "role_process_kill",
+}
+
+
+def distributed_infrastructure_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten paired task outcomes and objective role-infrastructure evidence."""
+    pairs: dict[str, dict[str, dict[str, Any]]] = {}
+    for record in records:
+        pair_id = str(record.get("pair_id") or "")
+        condition = str(record.get("condition") or "")
+        if pair_id and condition:
+            pairs.setdefault(pair_id, {})[condition] = record
+
+    rows: list[dict[str, Any]] = []
+    for pair_id, triplet in sorted(pairs.items()):
+        fault = triplet.get("cj_fault")
+        if not fault or fault.get("fault_type") not in CONTROLLED_INFRASTRUCTURE_FAULTS:
+            continue
+        lifecycle = fault.get("lifecycle") if isinstance(fault.get("lifecycle"), dict) else {}
+        observed: dict[str, Any] = {}
+        fault_event = ""
+        for event in fault.get("distributed_fault_evidence") or []:
+            if not isinstance(event, dict):
+                continue
+            event_type = str(event.get("event_type") or "")
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            if event_type == "fault_observed":
+                fault_event = event_type
+                candidate = payload.get("observed")
+                if isinstance(candidate, dict):
+                    observed.update(candidate)
+                observed.setdefault("verified", payload.get("verified"))
+                observed.setdefault("reason", payload.get("reason"))
+        direct = triplet.get("direct_baseline", {})
+        control = triplet.get("cj_control", {})
+        rows.append({
+            "study_id": fault.get("study_id", ""),
+            "pair_id": pair_id,
+            "run_id": fault.get("run_id", ""),
+            "framework": fault.get("framework", ""),
+            "topology": fault.get("topology", ""),
+            "benchmark": fault.get("benchmark", ""),
+            "task_id": fault.get("task_id", ""),
+            "seed": fault.get("seed", ""),
+            "fault_type": fault.get("fault_type", ""),
+            "target_role": fault.get("fault_target_role", ""),
+            "validity": fault.get("validity", ""),
+            "configured": lifecycle.get("configured"),
+            "activated": lifecycle.get("activated"),
+            "triggered": lifecycle.get("triggered"),
+            "manifested": lifecycle.get("manifested"),
+            "reverted": lifecycle.get("reverted"),
+            "reversion_applicable": fault.get("fault_type") != "role_process_kill",
+            "recovered": lifecycle.get("recovered"),
+            "fault_event": fault_event,
+            "direct_success": direct.get("success"),
+            "control_success": control.get("success"),
+            "fault_success": fault.get("success"),
+            "direct_duration_s": direct.get("duration_s"),
+            "control_duration_s": control.get("duration_s"),
+            "fault_duration_s": fault.get("duration_s"),
+            "direct_scorer_status": direct.get("scorer_status"),
+            "control_scorer_status": control.get("scorer_status"),
+            "fault_scorer_status": fault.get("scorer_status"),
+            "fault_operational_success": fault.get("operational_success"),
+            "fault_silent_failure": fault.get("silent_failure"),
+            "configured_delay_ms": observed.get("configured_delay_ms"),
+            "observed_latency_ms": observed.get("observed_latency_ms"),
+            "baseline_latency_ms": observed.get("baseline_latency_ms"),
+            "configured_loss_pct": observed.get("configured_loss_pct"),
+            "observed_packet_loss_pct": observed.get("observed_packet_loss_pct"),
+            "requested_memory_bytes": observed.get("requested_memory_bytes"),
+            "memory_delta_bytes": observed.get("memory_delta_bytes"),
+            "memory_peak_bytes": observed.get("memory_peak_bytes"),
+            "oom_kill_count_before": observed.get("oom_kill_count_before"),
+            "oom_kill_count_after": observed.get("oom_kill_count_after"),
+            "killed_pid": observed.get("killed_pid"),
+            "trigger_error": observed.get("trigger_error"),
+            "evidence_reason": observed.get("reason") or lifecycle.get("details"),
+        })
+    return rows
+
+
+def write_distributed_infrastructure_outputs(
+    records: list[dict[str, Any]],
+    results_dir: Path,
+) -> None:
+    rows = distributed_infrastructure_rows(records)
+    csv_path = results_dir / "distributed_infrastructure_runs.csv"
+    fields = list(rows[0].keys()) if rows else [
+        "study_id", "pair_id", "run_id", "framework", "topology",
+        "benchmark", "task_id", "seed", "fault_type", "target_role",
+        "validity", "configured", "activated", "triggered", "manifested",
+        "reverted", "recovered",
+    ]
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    by_fault: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_fault.setdefault(str(row["fault_type"]), []).append(row)
+    summary = {
+        "metric_scope": "controlled distributed role-infrastructure campaign",
+        "raw_records": len(records),
+        "complete_triplets": len(rows),
+        "faults": {},
+    }
+    for name, group in sorted(by_fault.items()):
+        count = len(group)
+        valid = [row for row in group if row["validity"] == "valid"]
+        scored = [
+            row for row in valid
+            if (
+                row["control_scorer_status"] == "ok"
+                and row["fault_scorer_status"] == "ok"
+                and isinstance(row["control_success"], (int, float))
+                and isinstance(row["fault_success"], (int, float))
+            )
+        ]
+        direct_scored = [
+            row for row in scored
+            if row["direct_scorer_status"] == "ok"
+            and isinstance(row["direct_success"], (int, float))
+        ]
+        baseline_eligible = [
+            row for row in direct_scored if row["direct_success"] == 1.0
+        ]
+        control_eligible = [row for row in scored if row["control_success"] == 1.0]
+        baseline_fault_failures = [
+            row for row in baseline_eligible if row["fault_success"] == 0.0
+        ]
+        reversion_applicable = [row for row in group if row["reversion_applicable"]]
+        summary["faults"][name] = {
+            "configured": count,
+            "unique_tasks": len({row["task_id"] for row in group}),
+            "valid": len(valid),
+            "scored_valid_pairs": len(scored),
+            "baseline_eligible_pairs": len(baseline_eligible),
+            "control_eligible_pairs": len(control_eligible),
+            "activation_rate": sum(row["activated"] is True for row in group) / count,
+            "trigger_rate": sum(row["triggered"] is True for row in group) / count,
+            "manifestation_rate": sum(row["manifested"] is True for row in group) / count,
+            "reversion_rate": (
+                sum(row["reverted"] is True for row in reversion_applicable)
+                / len(reversion_applicable)
+                if reversion_applicable else None
+            ),
+            "recovery_rate": sum(row["recovered"] is True for row in group) / count,
+            "direct_pass_at_1": (
+                sum(float(row["direct_success"]) for row in direct_scored) / len(direct_scored)
+                if direct_scored else None
+            ),
+            "control_pass_at_1": (
+                sum(float(row["control_success"]) for row in scored) / len(scored)
+                if scored else None
+            ),
+            "fault_pass_at_1": (
+                sum(float(row["fault_success"]) for row in scored) / len(scored)
+                if scored else None
+            ),
+            "fault_specific_degradation": (
+                sum(float(row["control_success"]) - float(row["fault_success"]) for row in scored)
+                / len(scored)
+                if scored else None
+            ),
+            "conditional_robustness": (
+                sum(float(row["fault_success"]) for row in baseline_eligible)
+                / len(baseline_eligible)
+                if baseline_eligible else None
+            ),
+            "silent_failure_rate": (
+                sum(row["fault_silent_failure"] is True for row in baseline_fault_failures)
+                / len(baseline_fault_failures)
+                if baseline_fault_failures else None
+            ),
+        }
+    (results_dir / "distributed_infrastructure_summary.json").write_text(
+        json.dumps(redact_secrets(summary), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _record_from_result(
     *,
     result: dict[str, Any],
@@ -341,6 +606,23 @@ def _record_from_result(
     )
     fault_plan = DistributedFaultPlan.from_config(fault_parameters)
     labels = distributed_agent_labels(agent_system)
+    if fault_name in CONTROLLED_INFRASTRUCTURE_FAULTS:
+        definition = dataclasses.replace(
+            definition,
+            blast_radius_boundary=(
+                "one disposable role container in a three-container distributed "
+                "agent execution; the host and sibling role containers are excluded"
+            ),
+            expected_activation_evidence=(
+                "DockerTarget evidence from the exact role container: tc plus a "
+                "gateway probe for network faults, cgroup memory measurements for "
+                "memory pressure, or an observed distributed-entrypoint PID transition"
+            ),
+            recovery_condition=(
+                "Network qdisc or stress process removal is verified; for irreversible "
+                "process termination, the role container must accept a fresh process"
+            ),
+        )
     record = {
         **result,
         "output_schema_version": OUTPUT_SCHEMA_VERSION,
@@ -392,7 +674,12 @@ def _record_from_result(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        _validate_distributed_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -416,6 +703,8 @@ def main(argv: list[str] | None = None) -> int:
     study_id = args.study_id or f"dist-study-{uuid.uuid4().hex[:12]}"
     campaign_id = f"dist-{args.topology}-{args.benchmark}-{uuid.uuid4().hex[:8]}"
 
+    fault_names = _distributed_fault_names(args)
+    capabilities = _required_capabilities(fault_names)
     docker_cfg = DockerExecutionConfig(
         image=args.docker_image,
         cpus=args.cpus,
@@ -423,6 +712,7 @@ def main(argv: list[str] | None = None) -> int:
         timeout_s=args.container_timeout,
         env_file=os.path.abspath(args.env_file) if args.env_file else None,
         preserve_io=True,
+        capabilities=capabilities,
     )
     runner = (
         DistributedReferenceRunner(docker_cfg)
@@ -445,7 +735,6 @@ def main(argv: list[str] | None = None) -> int:
         "distributed_agent_system": args.agent_system,
     }
 
-    fault_names = _distributed_fault_names(args)
     if not args.triplet and fault_names != ["none"]:
         args.triplet = True
 
@@ -632,6 +921,8 @@ def main(argv: list[str] | None = None) -> int:
     generate_all_outputs(str(results_dir), study_id=study_id)
     if any(name in COORDINATED_GROUP_FAULTS for name in fault_names):
         write_distributed_coordination_outputs(records, results_dir)
+    if any(name in CONTROLLED_INFRASTRUCTURE_FAULTS for name in fault_names):
+        write_distributed_infrastructure_outputs(records, results_dir)
     print(f"[cj-eval] distributed smoke complete: {results_dir}")
     return 0
 

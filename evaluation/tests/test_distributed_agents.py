@@ -8,11 +8,22 @@ from pathlib import Path
 from chaos_jungle.faults.base import VerificationResult
 from evaluation.distributed_faults import DistributedFaultPlan, apply_communication_fault
 from evaluation.distributed_campaign import (
+    CONTROLLED_INFRASTRUCTURE_FAULTS,
+    _distributed_fault_config,
+    _required_capabilities,
+    _validate_distributed_args,
+    build_parser,
     distributed_coordination_rows,
+    distributed_infrastructure_rows,
     summarize_distributed_coordination,
+    write_distributed_infrastructure_outputs,
 )
 from evaluation.distributed_entrypoint import run_role_request, run_score_request
-from evaluation.distributed_runner import DistributedNativeRunner, DistributedReferenceRunner
+from evaluation.distributed_runner import (
+    DistributedNativeRunner,
+    DistributedReferenceRunner,
+    _RoleProcessKillHandle,
+)
 from evaluation.docker_runner import DockerExecution, DockerExecutionConfig, PreparedContainer, RunContext
 
 
@@ -399,6 +410,154 @@ def test_coordinated_group_fault_has_distinct_distributed_layer():
     assert plan.as_record_parameters()["maximum_skew_ms"] == 75
 
 
+def test_controlled_infrastructure_suite_has_exact_bounded_faults():
+    assert CONTROLLED_INFRASTRUCTURE_FAULTS == {
+        "role_network_delay",
+        "role_network_loss",
+        "role_memory_pressure",
+        "role_process_kill",
+    }
+    for fault_name in CONTROLLED_INFRASTRUCTURE_FAULTS:
+        plan = DistributedFaultPlan.from_config({
+            "fault_type": fault_name,
+            "target_role": "coder",
+        })
+        assert plan.is_role_local() is True
+        assert plan.layer() == "distributed_role_infrastructure"
+
+
+def test_controlled_infrastructure_parameters_are_explicit():
+    args = build_parser().parse_args([
+        "--docker-image", "cj:test",
+        "--results-dir", "/tmp/results",
+        "--fault-suite", "infrastructure_controlled",
+        "--network-delay-ms", "175",
+        "--network-loss-pct", "12",
+        "--memory-pressure-mb", "320",
+        "--process-trigger-timeout-s", "33",
+    ])
+    delay = _distributed_fault_config(args, "role_network_delay")
+    loss = _distributed_fault_config(args, "role_network_loss")
+    memory = _distributed_fault_config(args, "role_memory_pressure")
+    process = _distributed_fault_config(args, "role_process_kill")
+
+    assert delay["parameters"]["delay_ms"] == 175
+    assert loss["parameters"]["loss_pct"] == 12
+    assert memory["parameters"]["memory_bytes"] == "320M"
+    assert process["parameters"]["trigger_timeout_s"] == 33
+    assert process["parameters"]["process_pattern"] == "evaluation.distributed_entrypoint"
+    assert _required_capabilities(["role_network_delay"]) == ["NET_ADMIN"]
+    assert _required_capabilities(["role_memory_pressure", "role_process_kill"]) == []
+    _validate_distributed_args(args)
+
+
+def test_controlled_infrastructure_parameters_reject_unsafe_memory_pressure():
+    args = build_parser().parse_args([
+        "--docker-image", "cj:test",
+        "--results-dir", "/tmp/results",
+        "--fault-suite", "infrastructure_controlled",
+        "--memory", "512m",
+        "--memory-pressure-mb", "400",
+    ])
+
+    try:
+        _validate_distributed_args(args)
+    except ValueError as exc:
+        assert "75%" in str(exc)
+    else:
+        raise AssertionError("unsafe memory pressure was accepted")
+
+
+def test_role_process_kill_handle_preserves_trigger_and_recovery_evidence():
+    class FakeTarget:
+        def __init__(self):
+            self.responses = [
+                (0, "killed:123\n", ""),
+                (0, "", ""),
+            ]
+
+        def run(self, _command):
+            return self.responses.pop(0)
+
+    target = FakeTarget()
+    handle = _RoleProcessKillHandle(target, role="coder", timeout_s=1)
+    handle._watch_and_kill()
+
+    active = handle.verify_active(target)
+    recovered = handle.verify_recovered(target)
+
+    assert active.verified is True
+    assert active.observed["killed_pid"] == "123"
+    assert recovered.verified is True
+
+
+def test_distributed_infrastructure_rows_require_exact_triplet_and_keep_measurements(tmp_path):
+    base = {
+        "study_id": "study",
+        "pair_id": "pair",
+        "framework": "autogen-real",
+        "topology": "linear",
+        "benchmark": "humanevalplus",
+        "task_id": "HumanEval/0",
+        "seed": 17,
+        "fault_type": "role_network_delay",
+        "fault_target_role": "coder",
+    }
+    records = [
+        {
+            **base, "run_id": "direct", "condition": "direct_baseline",
+            "success": 1.0, "duration_s": 1.0, "scorer_status": "ok",
+        },
+        {
+            **base, "run_id": "control", "condition": "cj_control",
+            "success": 1.0, "duration_s": 1.1, "scorer_status": "ok",
+        },
+        {
+            **base,
+            "run_id": "fault",
+            "condition": "cj_fault",
+            "success": 1.0,
+            "duration_s": 1.5,
+            "scorer_status": "ok",
+            "operational_success": True,
+            "silent_failure": False,
+            "validity": "valid",
+            "lifecycle": {
+                "configured": True, "activated": True, "triggered": True,
+                "manifested": True, "reverted": True, "recovered": True,
+            },
+            "distributed_fault_evidence": [{
+                "event_type": "fault_observed",
+                "payload": {
+                    "verified": True,
+                    "reason": "delay observed",
+                    "observed": {
+                        "configured_delay_ms": 150.0,
+                        "baseline_latency_ms": 0.5,
+                        "observed_latency_ms": 151.0,
+                    },
+                },
+            }],
+        },
+    ]
+
+    rows = distributed_infrastructure_rows(records)
+
+    assert len(rows) == 1
+    assert rows[0]["configured_delay_ms"] == 150.0
+    assert rows[0]["observed_latency_ms"] == 151.0
+    assert rows[0]["recovered"] is True
+
+    write_distributed_infrastructure_outputs(records, tmp_path)
+    summary = json.loads(
+        (tmp_path / "distributed_infrastructure_summary.json").read_text(encoding="utf-8")
+    )
+    fault_summary = summary["faults"]["role_network_delay"]
+    assert fault_summary["scored_valid_pairs"] == 1
+    assert fault_summary["baseline_eligible_pairs"] == 1
+    assert fault_summary["conditional_robustness"] == 1.0
+
+
 def test_distributed_runner_builds_one_coordinated_injection_per_role(monkeypatch, tmp_path):
     created_groups = []
 
@@ -613,3 +772,85 @@ def test_distributed_runner_records_role_container_fault(monkeypatch, tmp_path):
     assert lifecycle["recovered"] is True
     assert lifecycle["verdict"] == "valid"
     assert any(e["event_type"] == "fault_observed" and e["agent_role"] == "coder" for e in result["distributed_trace"])
+
+
+def test_role_network_delay_requires_objective_latency_measurement(monkeypatch, tmp_path):
+    class FakeTarget:
+        def __init__(self, container_id, **_kwargs):
+            self.container_id = container_id
+            self.probes = 0
+
+        def connect(self):
+            return None
+
+        def disconnect(self):
+            return None
+
+        def run(self, _command):
+            self.probes += 1
+            latency = 0.5 if self.probes == 1 else 151.0
+            return 0, (
+                "5 packets transmitted, 5 received, 0% packet loss\n"
+                f"rtt min/avg/max/mdev = 0.1/{latency}/152.0/1.0 ms\n"
+            ), ""
+
+    class FakeNetworkDelay:
+        def __init__(self, delay, iface):
+            self.delay = delay
+            self.iface = iface
+
+        def start(self, _target):
+            return None
+
+        def stop(self, _target):
+            return None
+
+        def verify_active(self, _target):
+            return VerificationResult(
+                verified=True,
+                reason="tc netem delay present",
+                observed={"qdisc": "delay 150ms"},
+            )
+
+        def verify_recovered(self, _target):
+            return VerificationResult(verified=True, reason="qdisc removed")
+
+    monkeypatch.setattr("evaluation.distributed_runner.DockerTarget", FakeTarget)
+    monkeypatch.setattr("evaluation.distributed_runner.NetworkDelay", FakeNetworkDelay)
+
+    runner = DistributedReferenceRunner(DockerExecutionConfig(image="cj:test"))
+    fake_docker = _FakeDockerRunner(tmp_path)
+    runner.docker_runner = fake_docker
+    context = RunContext(
+        study_id="study", campaign_id="campaign", pair_id="pair", run_id="run",
+        condition="cj_fault", output_root=str(tmp_path / "distributed"),
+    )
+    containers = runner._prepare_role_containers(
+        task=_simple_task(), seed=1,
+        model_config={"name": "fake", "base_url": "http://example.test/v1"},
+        execution_config={"dry_run": True}, run_context=context,
+    )
+    fake_docker.running.add(containers["coder"].container_id)
+    lifecycle = {
+        "configured": True, "activated": False, "triggered": False,
+        "manifested": False, "reverted": False, "recovered": False,
+        "verdict": "pending", "details": "",
+    }
+    trace = []
+    cleanups = []
+    plan = DistributedFaultPlan.from_config({
+        "fault_type": "role_network_delay",
+        "target_role": "coder",
+        "parameters": {"delay_ms": 150},
+    })
+
+    runner._maybe_apply_role_fault(
+        containers, role="coder", fault_plan=plan, lifecycle=lifecycle,
+        trace=trace, run_context=context, step=1, trace_id="trace",
+        cleanups=cleanups,
+    )
+
+    assert lifecycle["manifested"] is True
+    assert trace[-1]["payload"]["observed"]["configured_delay_ms"] == 150
+    assert trace[-1]["payload"]["observed"]["observed_latency_ms"] == 151.0
+    assert len(cleanups) == 1

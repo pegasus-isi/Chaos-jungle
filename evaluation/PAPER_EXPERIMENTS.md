@@ -182,6 +182,32 @@ rate, partial-activation rate, rollback success, and verified recovery. This is
 a coordination/fault-controller study; it does not relabel the probe workload
 as a framework-native agent result.
 
+### Controlled distributed infrastructure-resilience campaign
+
+This smaller campaign complements E7 without changing its CPU-coordination
+matrix. It runs real distributed-native agents with one container per role and
+four coder-scoped faults: 150 ms network delay, 10% packet loss, 256 MiB memory
+pressure, and event-triggered role-process termination. Network faults receive
+only `NET_ADMIN`; memory and process faults receive no added capability.
+
+```bash
+evaluation/scripts/run_controlled_infrastructure_resilience.sh \
+  --env-file .env \
+  --model minimax-m2 \
+  --tasks 3 \
+  --seeds "17"
+```
+
+The default matrix is 72 exact triplets (216 executions): three frameworks,
+two benchmarks, one linear topology, three tasks, one seed, and four faults.
+Each result directory contains `distributed_infrastructure_runs.csv` and
+`distributed_infrastructure_summary.json`. Validity requires objective
+evidence: measured latency/loss, cgroup memory growth, or a PID captured and
+terminated after the real role executor starts. Process termination is
+irreversible (`reverted=false`); infrastructure recovery instead verifies that
+the role container can launch a fresh process. Network partition is excluded
+because host-mediated handoffs do not traverse a role-to-role network path.
+
 ### E8: Cross-layer chaos
 
 ```text
@@ -855,3 +881,28 @@ Interpretation rules:
   never reached the tool stage; they are not CJ manifestation failures.
 - Multi-agent claims should cite both outcome files and trace-alignment files,
   so role/topology conclusions are tied to evidence rather than only pass@1.
+
+## E10: Injection Strategy Fidelity
+
+E10 evaluates the strategy surface documented in `docs/guides/strategies.rst`
+as a separate no-cost experiment. It preserves every existing agent,
+infrastructure, and canonical result record.
+
+| Capability | Experimental evidence | Primary metric |
+| --- | --- | --- |
+| Manual/on-demand | HTTP 200 before/after and HTTP 503 only inside `inject()` | scope leakage, restoration |
+| Percentage/stochastic | repeated seeded request sequences at configured probabilities | affected fraction, Wilson CI, calibration error, replay identity |
+| Progressive ramp | common seeded draws across increasing probabilities | monotonicity, inversions, observed tipping point |
+| Targeted/selective | matched and unmatched URL/model/tool requests | precision, target coverage, spillover |
+| Delayed trigger | known `after_n_calls` boundary | expected vs observed trigger index |
+| Cycling/door | repeated fault/rest phases | phase accuracy, recovery per cycle |
+| Scheduled interval | bounded scheduler observation window | cadence, jitter, clean stop |
+
+Scheduled and selector results are labeled partial because E10 validates
+interval dispatch and public URL/model/tool filters, not cron calendar
+behavior or header selectors. Strategies documented as planned, and cascading
+without an explicit causal-chaining API, are listed as unsupported.
+
+```bash
+evaluation/scripts/run_strategy_evaluation.sh --profile paper
+```

@@ -383,6 +383,20 @@ implements the safe order:
 restricted to the exact experiment container ID. The Docker socket is never
 mounted into the agent container.
 
+For a bounded real-agent infrastructure campaign, run:
+
+```bash
+evaluation/scripts/run_controlled_infrastructure_resilience.sh \
+  --env-file .env --model minimax-m2 --tasks 3 --seeds "17"
+```
+
+This preserves exact direct/control/fault pairing while testing coder-scoped
+network delay, packet loss, memory pressure, and event-triggered role-process
+termination. The network conditions add only `NET_ADMIN` to the disposable
+role containers. Output includes measured `tc`/ping effects, cgroup memory and
+OOM counters, killed PID evidence, lifecycle validity, and post-fault container
+health in `distributed_infrastructure_runs.csv`.
+
 ### Multi-agent traces
 
 `evaluation.multi_agent` defines the shared roles and schema:
@@ -708,6 +722,29 @@ python -m evaluation.rebuild_extended_outputs \
 E8 reports strict EvalPlus coverage separately from binary task outcomes. A
 completed agent execution that emits no candidate program is an observed task
 failure, not an evaluator failure and not a reason for outcome-selected reruns.
+
+### E10 strategy-fidelity study
+
+This additive no-cost study evaluates CJ's documented injection strategies
+against a real ephemeral loopback HTTP service. It does not replace or alter
+the Docker infrastructure, individual-agent, or multi-agent campaigns.
+
+```bash
+# Quick integration gate.
+evaluation/scripts/run_strategy_evaluation.sh --profile smoke
+
+# Paper profile: 1,000 requests per probability/step and three seeds.
+evaluation/scripts/run_evaluation_campaign.sh scenario strategy-fidelity
+```
+
+Outputs are isolated under
+`results/<run>/strategy-fidelity/E10-<profile>/`: `runs.jsonl`,
+`strategy_summary.csv`, `strategy_fidelity_summary.json`, and
+`study_manifest.json`. The study validates manual activation, stochastic
+calibration, progressive ramps, URL/model/tool selectivity, delayed triggers,
+cycling, interval scheduling, and restoration. Planned strategies and partial
+capabilities without a public executable API are recorded as unsupported,
+never simulated as successful tests.
 
 ---
 

@@ -19,6 +19,9 @@ ROLE_LOCAL_FAULTS = {
     "role_container_kill",
     "role_cpu_pressure",
     "role_memory_pressure",
+    "role_network_delay",
+    "role_network_loss",
+    "role_process_kill",
 }
 
 COORDINATED_GROUP_FAULTS = {
@@ -144,6 +147,26 @@ def role_memory_bytes(severity: str, parameters: dict[str, Any]) -> str:
         "medium": "256M",
         "high": "512M",
     }.get(severity, "256M")
+
+
+def role_network_delay_ms(severity: str, parameters: dict[str, Any]) -> float:
+    if "delay_ms" in parameters:
+        return float(parameters["delay_ms"])
+    return {
+        "low": 50.0,
+        "medium": 150.0,
+        "high": 500.0,
+    }.get(severity, 150.0)
+
+
+def role_network_loss_pct(severity: str, parameters: dict[str, Any]) -> float:
+    if "loss_pct" in parameters:
+        return float(parameters["loss_pct"])
+    return {
+        "low": 2.0,
+        "medium": 10.0,
+        "high": 25.0,
+    }.get(severity, 10.0)
 
 
 def apply_communication_fault(

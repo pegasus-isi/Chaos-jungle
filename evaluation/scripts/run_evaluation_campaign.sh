@@ -22,7 +22,10 @@ Modes:
   multi         Run the native framework multi-agent pilot.
   distributed-native
                 Run native framework roles in separate containers.
+  controlled-infra
+                Run bounded network, memory, and process faults against one role container.
   infra         Run one container-scoped infrastructure fault smoke.
+  strategies    Run no-cost empirical validation of CJ injection strategies.
   statistical   Run cost-controlled paper statistical campaign.
   smoke        Run the full smoke bundle: verify, injector, overhead, individual, multi, infra.
   pilot        Run the broader pilot bundle from run_all_paper_scenarios.sh.
@@ -43,8 +46,11 @@ Preconfigured scenarios:
   multi-native-mini           Native framework multi-agent, both topologies, one task.
   multi-reference-mini        Backward-compatible alias for multi-native-mini.
   distributed-native-mini     Native framework roles in separate containers, one task.
+  controlled-infrastructure   Three frameworks, two benchmarks, three tasks, four role faults.
   infra-cpu-smoke             Container-scoped CPU pressure smoke, dry-run task.
   infra-network-smoke         Container-scoped network-latency smoke, dry-run task.
+  strategy-fidelity           Validate probability, ramp, targeting, timing, cycling,
+                              scheduling, and restoration without model calls.
   paper-smoke                 Small bundle across implemented paper categories.
   paper-statistical           30-task/3-seed representative resilience campaign.
   all-current                 Every current scenario category and infra fault.
@@ -82,7 +88,7 @@ Common options:
   --results-root PATH         Root folder for generated results; defaults to repo results/.
   --experiment-run NAME       Override the auto-generated experiment folder name.
   --run-name NAME             Human-readable run name.
-  --profile NAME              smoke or pilot, for bundle modes.
+  --profile NAME              smoke, pilot, or paper, depending on mode.
   --rebuild-image             Rebuild the Docker image before running.
   --no-auto-build             Fail if the image is missing.
   --help                      Show this help.
@@ -184,6 +190,14 @@ Preconfigured evaluation scenarios:
               linear topology, one task, dry-run off.
     Purpose: smallest container-per-role native-framework check.
 
+  controlled-infrastructure
+    Mode: controlled-infra
+    Defaults: AutoGen/LangGraph/CrewAI, HumanEval+/MBPP+, linear topology,
+              three tasks, one seed, network delay/loss, memory pressure,
+              and event-triggered coder-process termination.
+    Purpose: bounded real-agent infrastructure resilience campaign with exact
+             direct/control/fault triplets and container-scoped evidence.
+
   infra-cpu-smoke
     Mode: infra
     Defaults: toy dry-run task, fault=cpu_pressure, tasks=1.
@@ -193,6 +207,12 @@ Preconfigured evaluation scenarios:
     Mode: infra
     Defaults: toy dry-run task, fault=network_latency, tasks=1.
     Purpose: validate NET_ADMIN-scoped network fault lifecycle.
+
+  strategy-fidelity
+    Mode: strategies
+    Defaults: paper profile, 1,000 requests per probability, three seeds.
+    Purpose: evaluate documented CJ strategy semantics and restoration with a
+             real loopback HTTP workload; no Docker or model calls.
 
   paper-smoke
     Mode: smoke
@@ -319,6 +339,15 @@ apply_scenario() {
       export CJ_EVAL_RUN_NAME="distributed-native-mini"
       echo "distributed-native"
       ;;
+    controlled-infrastructure)
+      export CJ_EVAL_SYSTEMS="${CJ_EVAL_SYSTEMS:-autogen-real langgraph-real crewai-real}"
+      export CJ_EVAL_BENCHMARKS="${CJ_EVAL_BENCHMARKS:-humanevalplus mbppplus}"
+      export CJ_EVAL_TOPOLOGIES="${CJ_EVAL_TOPOLOGIES:-linear}"
+      export CJ_EVAL_TASKS="${CJ_EVAL_TASKS:-3}"
+      export CJ_EVAL_SEEDS="${CJ_EVAL_SEEDS:-17}"
+      export CJ_EVAL_RUN_NAME="controlled-infrastructure"
+      echo "controlled-infra"
+      ;;
     infra-cpu-smoke)
       export CJ_EVAL_INFRA_FAULT="cpu_pressure"
       export CJ_EVAL_BENCHMARK="toy"
@@ -336,6 +365,11 @@ apply_scenario() {
       export CJ_EVAL_DRY_RUN="1"
       export CJ_EVAL_RUN_NAME="infra-network-smoke"
       echo "infra"
+      ;;
+    strategy-fidelity)
+      export CJ_EVAL_STRATEGY_PROFILE="${CJ_EVAL_STRATEGY_PROFILE:-paper}"
+      export CJ_EVAL_RUN_NAME="strategy-fidelity"
+      echo "strategies"
       ;;
     paper-smoke)
       export CJ_EVAL_PROFILE="smoke"
@@ -536,6 +570,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       export CJ_EVAL_PROFILE="$2"
+      export CJ_EVAL_STRATEGY_PROFILE="$2"
       shift 2
       ;;
     --rebuild-image)
@@ -619,9 +654,18 @@ case "${mode}" in
     ensure_image
     "${script_dir}/run_distributed_native_multi_agent_smoke.sh"
     ;;
+  controlled-infra)
+    ensure_image
+    "${script_dir}/run_controlled_infrastructure_resilience.sh"
+    ;;
   infra)
     ensure_image
     "${script_dir}/run_infrastructure_fault_smoke.sh"
+    ;;
+  strategies)
+    "${script_dir}/run_strategy_evaluation.sh" \
+      --profile "${CJ_EVAL_STRATEGY_PROFILE:-paper}" \
+      --results-run "${CJ_EVAL_EXPERIMENT_RUN}"
     ;;
   statistical)
     ensure_image

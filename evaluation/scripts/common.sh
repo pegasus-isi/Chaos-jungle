@@ -35,6 +35,20 @@ cj_eval_slug() {
   echo "$1" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9._=-' '-' | sed 's/^-//;s/-$//'
 }
 
+cj_eval_compact_slug() {
+  local value="$1"
+  local max_length="${2:-120}"
+  local prefix_length="${3:-96}"
+  local slug
+  slug="$(cj_eval_slug "${value}")"
+  if [[ "${#slug}" -gt "${max_length}" ]]; then
+    local digest
+    digest="$("${CJ_EVAL_PYTHON}" -c 'import hashlib, sys; print(hashlib.sha256(sys.argv[1].encode("utf-8")).hexdigest()[:16])' "${value}")"
+    slug="${slug:0:${prefix_length}}-${digest}"
+  fi
+  echo "${slug}"
+}
+
 cj_eval_json_string() {
   "${CJ_EVAL_PYTHON}" -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
 }
@@ -43,7 +57,7 @@ cj_eval_results_root() {
   local base
   base="$(cj_eval_results_base)"
   if [[ -n "${CJ_EVAL_EXPERIMENT_RUN:-}" ]]; then
-    echo "${base}/$(cj_eval_slug "${CJ_EVAL_EXPERIMENT_RUN}")"
+    echo "${base}/$(cj_eval_compact_slug "${CJ_EVAL_EXPERIMENT_RUN}")"
   else
     echo "${base}"
   fi
@@ -80,8 +94,8 @@ cj_eval_make_run_dir() {
   cj_eval_init_experiment_run
   local category_slug
   local name_slug
-  category_slug="$(cj_eval_slug "${category}")"
-  name_slug="$(cj_eval_slug "${name}")"
+  category_slug="$(cj_eval_compact_slug "${category}" 80 56)"
+  name_slug="$(cj_eval_compact_slug "${name}" 80 56)"
   local dir
   if [[ -n "${CJ_EVAL_EXPERIMENT_RUN:-}" ]]; then
     dir="${root}/${category_slug}/${name_slug}"
@@ -160,7 +174,11 @@ cj_eval_checkpoint_dir() {
 
 cj_eval_checkpoint_path() {
   local key="$1"
-  echo "$(cj_eval_checkpoint_dir)/$(cj_eval_slug "${key}").done.json"
+  local slug
+  # Keep ordinary names readable and backward compatible. Long keys can exceed
+  # the 255-byte filename limit once the atomic ".tmp" suffix is added.
+  slug="$(cj_eval_compact_slug "${key}")"
+  echo "$(cj_eval_checkpoint_dir)/${slug}.done.json"
 }
 
 cj_eval_checkpoint_done() {
@@ -201,21 +219,31 @@ cj_eval_find_completed_run_dir() {
   local root
   local category_slug
   local name_slug
+  local legacy_category_slug
+  local legacy_name_slug
   local base
+  local legacy_base
   local candidate
+  local search_base
   root="$(cj_eval_results_root)"
-  category_slug="$(cj_eval_slug "${category}")"
-  name_slug="$(cj_eval_slug "${name}")"
+  category_slug="$(cj_eval_compact_slug "${category}" 80 56)"
+  name_slug="$(cj_eval_compact_slug "${name}" 80 56)"
+  legacy_category_slug="$(cj_eval_slug "${category}")"
+  legacy_name_slug="$(cj_eval_slug "${name}")"
   base="${root}/${category_slug}/${name_slug}"
-  for candidate in "${base}" "${base}"-*; do
-    [[ -d "${candidate}" ]] || continue
-    [[ -s "${candidate}/${required_file}" ]] || continue
-    if [[ -f "${candidate}/logs/run.log" ]] && grep -q "\[cj-eval\] command failed with exit" "${candidate}/logs/run.log"; then
-      echo "[cj-eval] found partial failed result; not backfilling checkpoint: ${candidate}" >&2
-      continue
-    fi
-    echo "${candidate}"
-    return 0
+  legacy_base="${root}/${legacy_category_slug}/${legacy_name_slug}"
+  for search_base in "${base}" "${legacy_base}"; do
+    for candidate in "${search_base}" "${search_base}"-*; do
+      [[ -d "${candidate}" ]] || continue
+      [[ -s "${candidate}/${required_file}" ]] || continue
+      if [[ -f "${candidate}/logs/run.log" ]] && grep -q "\[cj-eval\] command failed with exit" "${candidate}/logs/run.log"; then
+        echo "[cj-eval] found partial failed result; not backfilling checkpoint: ${candidate}" >&2
+        continue
+      fi
+      echo "${candidate}"
+      return 0
+    done
+    [[ "${legacy_base}" != "${base}" ]] || break
   done
   return 1
 }
