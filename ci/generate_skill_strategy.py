@@ -187,8 +187,14 @@ def build_messages(inventory: dict, skills: dict[str, str], cj_exports: str) -> 
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def request_strategy(base: str, model: str, key: str, messages: list[dict]) -> str:
-    payload = json.dumps({"model": model, "messages": messages, "max_tokens": 3500}).encode()
+def request_strategy(
+    base: str, model: str, key: str, messages: list[dict],
+    reasoning_effort: str | None = None,
+) -> str:
+    body = {"model": model, "messages": messages, "max_tokens": 8192}
+    if reasoning_effort:
+        body["reasoning_effort"] = reasoning_effort
+    payload = json.dumps(body).encode()
     request = Request(
         base + "/chat/completions", data=payload,
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
@@ -203,11 +209,23 @@ def request_strategy(base: str, model: str, key: str, messages: list[dict]) -> s
     except TimeoutError:
         raise RuntimeError("Strategy endpoint did not respond within 300 seconds") from None
     try:
-        content = result["choices"][0]["message"]["content"]
+        choice = result["choices"][0]
+        content = choice["message"]["content"]
     except (KeyError, IndexError, TypeError) as error:
         raise ValueError("Strategy endpoint returned no chat content") from error
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("Strategy endpoint returned empty chat content")
+        usage = result.get("usage") or {}
+        usage_summary = ", ".join(
+            "{}={}".format(name, usage[name])
+            for name in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if isinstance(usage, dict) and isinstance(usage.get(name), int)
+        )
+        raise ValueError(
+            "Strategy endpoint returned empty chat content "
+            "(finish_reason={!r}, {})".format(
+                choice.get("finish_reason"), usage_summary or "usage unavailable"
+            )
+        )
     return content.strip()
 
 
@@ -304,7 +322,10 @@ def main() -> None:
     )[:2500]
     base, model, key = model_config(os.environ)
     messages = build_messages(inventory, skills, cj_exports)
-    content = request_strategy(base, model, key, messages)
+    content = request_strategy(
+        base, model, key, messages,
+        reasoning_effort=os.environ.get("CJ_STRATEGY_REASONING_EFFORT"),
+    )
     (args.output_dir / "model-response.txt").write_text(content + "\n", encoding="utf-8")
     strategy = parse_strategy(content, inventory)
     (args.output_dir / "strategy.json").write_text(

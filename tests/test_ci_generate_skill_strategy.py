@@ -120,9 +120,12 @@ def test_strategy_request_uses_bounded_output_and_timeout(monkeypatch):
         return BytesIO(b'{"choices": [{"message": {"content": "{}"}}]}')
 
     monkeypatch.setattr("ci.generate_skill_strategy.urlopen", fake_urlopen)
-    assert request_strategy("https://example.invalid/v1", "model", "key", []) == "{}"
+    assert request_strategy(
+        "https://example.invalid/v1", "model", "key", [], reasoning_effort="low"
+    ) == "{}"
     assert observed["timeout"] == 300
-    assert observed["payload"]["max_tokens"] == 3500
+    assert observed["payload"]["max_tokens"] == 8192
+    assert observed["payload"]["reasoning_effort"] == "low"
 
 
 def test_strategy_request_reports_timeout_without_credentials(monkeypatch):
@@ -133,6 +136,20 @@ def test_strategy_request_reports_timeout_without_credentials(monkeypatch):
     with pytest.raises(RuntimeError, match="did not respond within 300 seconds") as error:
         request_strategy("https://example.invalid/v1", "model", "private-key", [])
     assert "private-key" not in str(error.value)
+
+
+def test_strategy_request_reports_empty_response_metadata(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return BytesIO(json.dumps({
+            "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 8192, "total_tokens": 8292},
+        }).encode())
+
+    monkeypatch.setattr("ci.generate_skill_strategy.urlopen", fake_urlopen)
+    with pytest.raises(
+        ValueError, match="finish_reason='length', prompt_tokens=100, completion_tokens=8192"
+    ):
+        request_strategy("https://example.invalid/v1", "model", "private-key", [])
 
 
 def test_main_writes_reviewable_artifacts_without_a_live_model(tmp_path, monkeypatch):
@@ -165,7 +182,7 @@ def test_main_writes_reviewable_artifacts_without_a_live_model(tmp_path, monkeyp
         lambda _: ("https://example.invalid/v1", "test-model", "test-key"),
     )
     monkeypatch.setattr("ci.generate_skill_strategy.request_strategy",
-                        lambda *args: json.dumps(strategy))
+                        lambda *args, **kwargs: json.dumps(strategy))
     output = tmp_path / "output"
     monkeypatch.setattr(sys, "argv", [
         "generate_skill_strategy.py", "--repo", str(repo), "--skills-dir", str(skills),

@@ -245,6 +245,8 @@ skill_strategy_swarmplus:
   stage: verify
   image: python:3.12-slim
   timeout: 12m
+  variables:
+    CJ_STRATEGY_REASONING_EFFORT: low
   needs:
     - job: build_dist
       artifacts: false
