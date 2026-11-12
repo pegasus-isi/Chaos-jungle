@@ -2,7 +2,8 @@
 
 A generic chaos engineering framework for injecting faults into distributed systems — network delays, packet loss, storage corruption, and LLM/agent failures — on any Linux machine, controlled locally, via SSH, or via HTTP daemon.
 
-> **Local only — do not push this file.**
+Paper-specific evaluation code and reproduction scripts are maintained on the
+[evaluation branch](https://github.com/pegasus-isi/Chaos-jungle/tree/evaluation).
 
 ---
 
@@ -36,13 +37,13 @@ A generic chaos engineering framework for injecting faults into distributed syst
 ## Installation
 
 ```bash
-pip install git+https://github.com/swarmourr/CJ.git
+pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
 # Force reinstall (upgrade to latest)
-pip install --force-reinstall git+https://github.com/swarmourr/CJ.git
+pip install --force-reinstall git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
 # Ubuntu 23+ / externally managed Python
-pip install --break-system-packages git+https://github.com/swarmourr/CJ.git
+pip install --break-system-packages git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 ```
 
 System dependencies on the target machine (network faults):
@@ -879,7 +880,7 @@ The daemon turns any Linux machine into a remotely controllable chaos target wit
 
 ```bash
 # Install chaos-jungle on the target first
-pip install git+https://github.com/swarmourr/CJ.git
+pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
 # Start the daemon
 cj-daemon --port 7777 --token mysecret
