@@ -4,11 +4,27 @@ Installation and verification
 Chaos Jungle requires Python 3.9 or newer. Use a virtual environment so the
 package and its dependencies do not change the system Python installation.
 
+Install a GitHub release
+------------------------
+
+Download the wheel from the `GitHub Releases page
+<https://github.com/pegasus-isi/Chaos-jungle/releases>`_, then install the
+downloaded file inside a virtual environment:
+
+.. code-block:: bash
+
+   python3 -m venv .venv
+   . .venv/bin/activate
+   python -m pip install ./chaos_jungle-0.1.0a0-py3-none-any.whl
+
+The two optional AI-assistant skill ZIPs are separate downloads from the
+same release; installing the Python wheel does not install the skills.
+
 Install the current source
 --------------------------
 
-Until a PyPI release is available, contributors with repository access can
-install the current source from the Pegasus repository:
+Contributors with repository access can install the current source from the
+Pegasus repository:
 
 .. code-block:: bash
 
@@ -18,8 +34,8 @@ install the current source from the Pegasus repository:
    python -m pip install --upgrade pip
    python -m pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
-The repository currently requires access; a public PyPI installation is not
-yet available. A checkout of the same revision can instead be installed with
+The repository currently requires access. A checkout of the same revision can
+instead be installed with
 ``python -m pip install -e .`` from its root directory.
 
 On Windows, activate the environment with ``.venv\Scripts\activate``. If
@@ -27,8 +43,7 @@ On Windows, activate the environment with ``.venv\Scripts\activate``. If
 installation when creating the environment.
 
 For development from a local checkout, replace the last command with
-``python -m pip install -e ".[dev]"``. After the first PyPI release, users can
-install the published package with ``python -m pip install chaos-jungle``.
+``python -m pip install -e ".[dev]"``.
 
 Verify the installation
 -----------------------
@@ -134,4 +149,4 @@ commands above allow inspection and opt-in installation before the run.
 see :doc:`network`. Fault-specific guides describe further target constraints.
 
 For a local example, continue with :doc:`../quickstart`. For the GitLab build,
-distribution checks, and PyPI release procedure, see :doc:`../publishing`.
+distribution checks, and GitHub release procedure, see :doc:`../publishing`.

@@ -119,30 +119,19 @@ the README version notice, and `CHANGELOG.md` on later bumps. Run
 `--prerelease beta`) when you are ready for a *new* version. Review the bump
 commit and tag before pushing. The initial `v0.1.0a0` release tag should be
 created manually after this release-preparation change is merged to `main`.
+That tag now exists; do not move it when repairing a release workflow.
 
-For PyPI publication from GitHub:
+For a GitHub release, inspect a fresh local build and confirm that the tag
+points to the intended commit on `main`. Pushing a new version tag runs
+`.github/workflows/release.yml`. It tests Python 3.9-3.12 on Ubuntu 24.04,
+checks the tag and package versions, builds and checks the wheel, source
+distribution, and two standalone skill ZIPs, then creates a GitHub prerelease
+with all four assets. PyPI publishing is not configured.
 
-1. Check that the `chaos-jungle` name is available on PyPI. On PyPI, add a
-   **pending GitHub Trusted Publisher** for owner `pegasus-isi`, repository
-   `Chaos-jungle`, workflow `release.yml`, and environment `pypi`. The owner
-   must complete this step; the workflow cannot create the publisher.
-2. In GitHub repository settings, create a `pypi` environment and require
-   reviewer approval for the publishing job. Restrict who can create release
-   tags, and confirm the code and version on `main` before tagging.
-3. Confirm GitLab and GitHub tests pass, and inspect a fresh local build. For
-   the first release, create and push `v0.1.0a0` pointing at the reviewed
-   `main` commit. For later releases, push the tag created by `cz bump`.
-4. The GitHub tag workflow reruns tests, verifies that the tag matches package
-   metadata and points to a commit on `main`, builds and checks both Python
-   distributions and both skill ZIPs, and smoke-tests the wheel. It creates
-   an alpha GitHub Release with all four assets. The separate PyPI job waits
-   for `pypi` environment approval and uploads only the wheel and source
-   distribution. Confirm the GitHub Release assets and PyPI page, then install
-   the package in a fresh environment with
-   `python -m pip install --pre chaos-jungle`.
-
-This project's self-managed GitLab instance is not eligible for PyPI's GitLab
-Trusted Publishing integration. GitLab continues to test and build, but only
-the GitHub tag workflow publishes. The GitHub workflow uses short-lived OIDC
-credentials, so do not commit a PyPI token or upload a local `.env`. Existing
-`dist/` files may be stale; never upload them instead of a clean tag build.
+If the workflow attached to an existing tag failed, do not force-push the tag.
+After fixing the workflow on `main`, use **Actions > Release Chaos Jungle > Run
+workflow** on `main` and supply the existing tag in the `tag` input. This
+checks out the tag's source while using the corrected workflow definition.
+Only run it for a tag whose matching GitHub Release does not yet exist.
+Existing local `dist/` files may be stale; never upload them instead of a
+clean tag build.

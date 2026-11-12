@@ -2,9 +2,10 @@
 
 A generic chaos engineering framework for injecting faults into distributed systems — network delays, packet loss, storage corruption, and LLM/agent failures — on any Linux machine, controlled locally, via SSH, or via HTTP daemon.
 
-> **Early tester preview.** Current package version is `0.1.0a0`. Once published,
-> install it with `python -m pip install --pre chaos-jungle`. Please report bugs,
-> edge cases, and feature requests in [GitHub Issues](https://github.com/pegasus-isi/Chaos-jungle/issues).
+> **Early tester preview.** Current package version is `0.1.0a0`. Download the
+> wheel from the [GitHub Releases page](https://github.com/pegasus-isi/Chaos-jungle/releases).
+> Please report bugs, edge cases, and feature requests in
+> [GitHub Issues](https://github.com/pegasus-isi/Chaos-jungle/issues).
 
 Paper-specific evaluation code and reproduction scripts are maintained on the
 [evaluation branch](https://github.com/pegasus-isi/Chaos-jungle/tree/evaluation).
@@ -45,13 +46,15 @@ files on each GitHub release. They are not installed by `pip`; see the
 
 ## Installation
 
-After the first alpha is published to PyPI:
+Download the wheel for your release from the
+[GitHub Releases page](https://github.com/pegasus-isi/Chaos-jungle/releases),
+then install the downloaded file:
 
 ```bash
-python -m pip install --pre chaos-jungle
+python -m pip install ./chaos_jungle-0.1.0a0-py3-none-any.whl
 ```
 
-Until then, install the current source from GitHub:
+To install the current source instead:
 
 ```bash
 pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main

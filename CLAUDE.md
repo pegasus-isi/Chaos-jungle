@@ -43,38 +43,20 @@ python -m venv "$DIST_DIR/venv"
 
 Check that the built filenames and package version agree. GitLab's `build_dist`
 and `verify_dist` jobs also check metadata, package contents, and installation.
-Neither GitLab job publishes to PyPI.
+Neither GitLab job creates a GitHub Release.
 
-## First alpha tag
+## GitHub alpha release
 
 The initial version is `0.1.0a0`. Do not run `cz bump` to create this first
-version: no matching release tag exists yet. Before tagging, merge the reviewed
-release changes to `main`, wait for GitHub and GitLab tests, and complete the
-one-time publisher setup:
+version. The `v0.1.0a0` tag already exists. Do not move or recreate a published
+tag to fix CI: update the workflow on `main`, then use **Actions > Release Chaos
+Jungle > Run workflow** on `main` with `tag` set to `v0.1.0a0`.
 
-1. In PyPI, add a pending GitHub Trusted Publisher for owner `pegasus-isi`,
-   repository `Chaos-jungle`, workflow `release.yml`, environment `pypi`.
-2. In GitHub, create the `pypi` environment, require approval, and restrict
-   who can push release tags.
-3. Confirm your local `main` is clean and equals `pegasus/main` before tagging:
-
-```sh
-git fetch pegasus main
-git status --short
-git rev-parse HEAD
-git rev-parse pegasus/main
-git tag -a v0.1.0a0 -m "Chaos Jungle 0.1.0a0 alpha"
-git push pegasus v0.1.0a0
-```
-
-The two printed commit IDs must match. Do not tag a dirty or unreviewed tree.
-Pushing the tag triggers `.github/workflows/release.yml`: it reruns tests,
-checks that the tag matches the version and points to a commit on `main`, builds
-fresh distributions and two separate skill ZIPs, and creates a prerelease on
-GitHub with all four assets. The independent PyPI job waits for `pypi`
-environment approval and uploads only the Python distributions. No branch
-push publishes to PyPI. After approval, verify the release assets, PyPI page,
-and a fresh `python -m pip install --pre chaos-jungle` installation.
+The workflow checks the existing tag against the package version and `main`,
+runs Python 3.9-3.12 tests on Ubuntu 24.04, builds and checks the wheel and
+source distribution plus two separate skill ZIPs, and creates a GitHub
+prerelease with all four assets. No job publishes to PyPI. Check the GitHub
+Release page and download the four assets after the workflow succeeds.
 
 ## Later alpha and beta versions
 
