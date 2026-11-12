@@ -34,6 +34,7 @@ from an isolated environment:
 DIST_DIR="$(mktemp -d)"
 python -m build --outdir "$DIST_DIR"
 python -m twine check "$DIST_DIR"/*
+python ci/build_skill_archives.py --version 0.1.0a0 --output-dir "$DIST_DIR"
 python -m venv "$DIST_DIR/venv"
 "$DIST_DIR/venv/bin/python" -m pip install "$DIST_DIR"/*.whl
 "$DIST_DIR/venv/bin/python" -c 'from importlib.metadata import version; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__'
@@ -69,9 +70,11 @@ git push pegasus v0.1.0a0
 The two printed commit IDs must match. Do not tag a dirty or unreviewed tree.
 Pushing the tag triggers `.github/workflows/release.yml`: it reruns tests,
 checks that the tag matches the version and points to a commit on `main`, builds
-fresh distributions, and waits for `pypi` environment approval before upload.
-No branch push publishes to PyPI. After approval, verify the PyPI page and a
-fresh `python -m pip install --pre chaos-jungle` installation.
+fresh distributions and two separate skill ZIPs, and creates a prerelease on
+GitHub with all four assets. The independent PyPI job waits for `pypi`
+environment approval and uploads only the Python distributions. No branch
+push publishes to PyPI. After approval, verify the release assets, PyPI page,
+and a fresh `python -m pip install --pre chaos-jungle` installation.
 
 ## Later alpha and beta versions
 

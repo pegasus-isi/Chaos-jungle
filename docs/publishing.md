@@ -88,6 +88,13 @@ environments, secrets, or generated results. The `.gitignore` file prevents
 local artifacts from being committed; the Hatchling `sdist` allowlist controls
 what enters a source release. Check both before each release.
 
+The two AI-assistant skills are released independently of the Python package.
+`ci/build_skill_archives.py` creates one versioned ZIP per skill, preserving
+its `SKILL.md` and supporting files under one top-level skill directory.
+These ZIPs are GitHub Release assets, not PyPI distribution files. Build them
+locally with `python ci/build_skill_archives.py --version 0.1.0a0 --output-dir dist`
+and inspect the archive entries before tagging.
+
 To test a release locally, use a virtual environment with Python 3.10 or newer:
 
 ```sh
@@ -126,10 +133,13 @@ For PyPI publication from GitHub:
    the first release, create and push `v0.1.0a0` pointing at the reviewed
    `main` commit. For later releases, push the tag created by `cz bump`.
 4. The GitHub tag workflow reruns tests, verifies that the tag matches package
-   metadata and points to a commit on `main`, builds and checks both
-   distributions, smoke-tests the wheel, then waits for `pypi` environment
-   approval before publishing. Confirm the resulting PyPI page and install it
-   in a fresh environment with `python -m pip install --pre chaos-jungle`.
+   metadata and points to a commit on `main`, builds and checks both Python
+   distributions and both skill ZIPs, and smoke-tests the wheel. It creates
+   an alpha GitHub Release with all four assets. The separate PyPI job waits
+   for `pypi` environment approval and uploads only the wheel and source
+   distribution. Confirm the GitHub Release assets and PyPI page, then install
+   the package in a fresh environment with
+   `python -m pip install --pre chaos-jungle`.
 
 This project's self-managed GitLab instance is not eligible for PyPI's GitLab
 Trusted Publishing integration. GitLab continues to test and build, but only

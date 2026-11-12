@@ -184,27 +184,30 @@ network faults, resource measurements for stress faults, process/container
 state for termination faults, and checksums plus application reads for state
 faults.
 
-Bundled AI-assistant skill
---------------------------
+Optional AI-assistant skills
+----------------------------
 
-The repository includes ``skills/chaos-jungle-injection`` for AI coding
-assistants that support skill instructions.  It encodes the same interface,
-target, routing, safety, and evidence decisions with additional practical
-recipes.  The skill assists experiment construction; it does not grant
-permission to disrupt a host or replace runtime verification.
+The repository includes separate ``chaos-jungle-injection`` and
+``chaos-jungle-evaluation`` skills for AI coding assistants.  The injection
+skill covers fault placement, routing, safety, and evidence; the evaluation
+skill covers workloads, controls, outcome metrics, and analysis.  They are
+optional instructions, not part of the Python wheel or a replacement for
+runtime verification.
 
-**Download:** :download:`chaos-jungle-injection-skill.zip
-<../_downloads/chaos-jungle-injection-skill.zip>`
-
-Install it for Codex:
+Download the matching, versioned ZIP files from the `GitHub release
+<https://github.com/pegasus-isi/Chaos-jungle/releases>`_.  Each archive
+contains one complete skill directory.  For Codex, extract the downloaded
+archives into ``~/.agents/skills/`` for your user or ``.agents/skills/`` in
+one project.  For example, with the first alpha release:
 
 .. code-block:: bash
 
-   unzip chaos-jungle-injection-skill.zip -d ~/.codex/skills
+   unzip chaos-jungle-injection-v0.1.0a0.zip -d ~/.agents/skills/
+   unzip chaos-jungle-evaluation-v0.1.0a0.zip -d ~/.agents/skills/
 
-Then invoke it explicitly with ``$chaos-jungle-injection``.  The skill remains
-ordinary Markdown and YAML, so other assistants with compatible skill or
-instruction mechanisms can import the same folder.
+Start a new Codex session after installation.  The skills do not install CJ;
+install the matching Python package separately.  Other assistants with
+compatible skill mechanisms can import the same folders.
 
 Next steps
 ----------

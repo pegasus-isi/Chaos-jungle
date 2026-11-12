@@ -1,4 +1,4 @@
-name: Publish to PyPI
+name: Release Chaos Jungle
 
 on:
   push:
@@ -58,10 +58,13 @@ jobs:
           python -m pip install build twine
           python -m build
           python -m twine check dist/*
+      - name: Build standalone skill archives
+        run: python ci/build_skill_archives.py --version "${GITHUB_REF_NAME#v}" --output-dir dist
       - name: Check release contents
         run: |
           python - <<'PY'
           from pathlib import Path
+          import os
           from tarfile import open as open_tar
           from zipfile import ZipFile
 
@@ -74,6 +77,13 @@ jobs:
               names = archive.getnames()
               assert any(name.endswith("/" + resource) for name in names)
               assert not any("/evaluation/" in name or "/results/" in name for name in names)
+              assert not any("/skills/" in name for name in names)
+          for skill in ("chaos-jungle-injection", "chaos-jungle-evaluation"):
+              skill_zip = Path("dist") / f"{skill}-{os.environ['GITHUB_REF_NAME']}.zip"
+              with ZipFile(skill_zip) as archive:
+                  entries = archive.namelist()
+                  assert f"{skill}/SKILL.md" in entries
+                  assert all(name.startswith(f"{skill}/") for name in entries)
           PY
       - name: Smoke test installed wheel
         run: |
@@ -84,8 +94,40 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: python-distributions
-          path: dist/*
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skill-archives
+          path: dist/*.zip
+          if-no-files-found: error
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: skill-archives
+          path: dist
+      - name: Publish GitHub release and skill archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          options=(--verify-tag --generate-notes --title "Chaos Jungle ${GITHUB_REF_NAME#v}")
+          if [[ "$GITHUB_REF_NAME" =~ (a|b|rc)[0-9]+$ ]]; then
+            options+=(--prerelease --latest=false)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* "${options[@]}"
 
   publish:
     needs: build
