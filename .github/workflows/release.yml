@@ -1,0 +1,103 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test tools
+        run: python -m pip install -e ".[dev]"
+      - name: Run unit tests
+        run: python -m pytest tests/ -q --strict-markers
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify release tag and source branch
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?", version), version
+          assert os.environ["GITHUB_REF_NAME"] == f"v{version}", "Tag must match project version"
+          assert "local README, do not push" not in Path("README.md").read_text(), "Review README before release"
+          assert f"Current package version is `{version}`" in Path("README.md").read_text(), "README version must match"
+          source = Path("chaos_jungle/__init__.py").read_text()
+          assert f'__version__ = "{version}"' in source, "Package version must match"
+          PY
+      - name: Build and check distributions
+        run: |
+          python -m pip install build twine
+          python -m build
+          python -m twine check dist/*
+      - name: Check release contents
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from tarfile import open as open_tar
+          from zipfile import ZipFile
+
+          wheel, = Path("dist").glob("*.whl")
+          sdist, = Path("dist").glob("*.tar.gz")
+          resource = "chaos_jungle/scripts/bpf/flow_modify.c"
+          with ZipFile(wheel) as archive:
+              assert resource in archive.namelist(), resource
+          with open_tar(sdist) as archive:
+              names = archive.getnames()
+              assert any(name.endswith("/" + resource) for name in names)
+              assert not any("/evaluation/" in name or "/results/" in name for name in names)
+          PY
+      - name: Smoke test installed wheel
+        run: |
+          python -m pip install dist/*.whl
+          cd /tmp
+          python -c 'from importlib.metadata import version; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__'
+          chaos-jungle --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/chaos-jungle
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

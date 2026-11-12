@@ -2,7 +2,6 @@ stages:
   - test
   - build
   - verify
-  - publish
 
 default:
   tags:
@@ -44,9 +43,15 @@ real_llm_experiment:
   rules:
     - if: '$CI_COMMIT_TAG'
       when: never
-    - when: manual
+    - if: '$CI_COMMIT_REF_PROTECTED == "true"'
+      when: manual
       allow_failure: true
+    - when: never
   script:
+    # GitLab injects project/group CI variables; do not copy their values into YAML.
+    - ': "${CJ_EVAL_BASE_URL:?Set CJ_EVAL_BASE_URL in GitLab CI/CD Variables}"'
+    - ': "${CJ_EVAL_MODEL:?Set CJ_EVAL_MODEL in GitLab CI/CD Variables}"'
+    - ': "${CJ_EVAL_API_KEY:?Set CJ_EVAL_API_KEY in GitLab CI/CD Variables}"'
     - python -m pip install -e .
     - python ci/run_real_experiment.py --mode live --output-dir ci-artifacts/real-llm-experiment
   artifacts:
@@ -113,34 +118,3 @@ verify_dist:
     - cd /tmp
     - python -c 'from importlib.metadata import version; from importlib.resources import files; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__; assert (files("chaos_jungle.scripts.bpf") / "flow_modify.c").is_file()'
     - chaos-jungle --help
-
-publish_pypi:
-  stage: publish
-  image: python:3.12-slim
-  needs:
-    - job: build_dist
-      artifacts: true
-    - job: verify_dist
-      artifacts: false
-  id_tokens:
-    PYPI_ID_TOKEN:
-      aud: pypi
-  environment:
-    name: pypi
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
-      when: manual
-    - when: never
-  script:
-    - |
-      python - <<'PY'
-      import os
-      import tomllib
-      from pathlib import Path
-
-      version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
-      assert os.environ["CI_COMMIT_TAG"] == f"v{version}", "Tag must match project version"
-      assert "Local only" not in Path("README.md").read_text(), "Review README before release"
-      PY
-    - python -m pip install --upgrade twine
-    - python -m twine upload dist/*

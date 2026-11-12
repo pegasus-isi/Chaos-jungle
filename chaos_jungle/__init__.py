@@ -160,7 +160,7 @@ from chaos_jungle.exporters import (
     WebhookExporter,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.0a0"
 
 __all__ = [
     # Core

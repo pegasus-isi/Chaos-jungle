@@ -2,6 +2,10 @@
 
 A generic chaos engineering framework for injecting faults into distributed systems — network delays, packet loss, storage corruption, and LLM/agent failures — on any Linux machine, controlled locally, via SSH, or via HTTP daemon.
 
+> **Early tester preview.** Current package version is `0.1.0a0`. Once published,
+> install it with `python -m pip install --pre chaos-jungle`. Please report bugs,
+> edge cases, and feature requests in [GitHub Issues](https://github.com/pegasus-isi/Chaos-jungle/issues).
+
 Paper-specific evaluation code and reproduction scripts are maintained on the
 [evaluation branch](https://github.com/pegasus-isi/Chaos-jungle/tree/evaluation).
 
@@ -36,14 +40,24 @@ Paper-specific evaluation code and reproduction scripts are maintained on the
 
 ## Installation
 
+After the first alpha is published to PyPI:
+
+```bash
+python -m pip install --pre chaos-jungle
+```
+
+Until then, install the current source from GitHub:
+
 ```bash
 pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
 # Force reinstall (upgrade to latest)
 pip install --force-reinstall git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 
-# Ubuntu 23+ / externally managed Python
-pip install --break-system-packages git+https://github.com/pegasus-isi/Chaos-jungle.git@main
+# Ubuntu 23+ / externally managed Python: use a virtual environment
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 ```
 
 System dependencies on the target machine (network faults):
@@ -57,23 +71,33 @@ sudo apt install iproute2 e2fsprogs inotify-tools
 ## Quick Start
 
 ```python
-from chaos_jungle.decorators import chaos_measure
-from chaos_jungle.faults import NetworkDelay
-from chaos_jungle.metrics import PingLatency
+import time
+import httpx
 
-@chaos_measure(
-    NetworkDelay("100ms", jitter="10ms"),
-    metrics=[PingLatency("8.8.8.8", count=5)],
-    scenario_name="E1",
-)
-def run_experiment():
-    run_my_pipeline()
-    return {"files_transferred": 120, "retries": 3}
+from chaos_jungle.inject.intercept import Latency, inject
 
-summary = run_experiment()
-print(summary["duration_s"])   # wall-clock seconds chaos was active
-print(summary["metrics"])      # baseline vs chaos comparison
+client = httpx.Client(transport=httpx.MockTransport(
+    lambda request: httpx.Response(200, json={"ok": True})
+))
+
+def workload():
+    start = time.perf_counter()
+    response = client.get("https://example.invalid/v1/check")
+    return response.status_code, time.perf_counter() - start
+
+control_status, control_seconds = workload()
+with inject(Latency(0.05), urls=["example.invalid"]):
+    fault_status, fault_seconds = workload()
+client.close()
+
+print(f"control: {control_status}, {control_seconds:.3f} s")
+print(f"fault:   {fault_status}, {fault_seconds:.3f} s")
 ```
+
+Both calls return 200; the faulted call should take roughly 50 ms longer.
+The mock transport makes this example safe to run without credentials, network
+access, or privileged Linux fault targets. See the [quickstart](https://pegasus-isi.github.io/Chaos-jungle/quickstart.html)
+for how to apply the same pattern to a real workload.
 
 ```bash
 # View results in the browser
@@ -446,7 +470,7 @@ cj-daemon --port 7777 --token mysecret
 ### Decorator
 
 ```python
-from chaos_jungle.decorators import chaos_measure
+from chaos_jungle import chaos_measure
 from chaos_jungle.faults import NetworkDelay
 
 @chaos_measure(NetworkDelay("100ms"), scenario_name="E1")
@@ -952,7 +976,7 @@ echo "ubuntu ALL=(ALL) NOPASSWD: /sbin/tc, /bin/dd, /usr/sbin/filefrag, /usr/bin
 Test how an Ollama-based LLM agent behaves under network and LLM faults:
 
 ```python
-from chaos_jungle.decorators import chaos_measure
+from chaos_jungle import chaos_measure
 from chaos_jungle.faults.llm import LLMLatency, LLMRateLimit, LLMUnavailable
 from chaos_jungle.faults import NetworkDelay
 from chaos_jungle.metrics import metric, Metric
@@ -1007,5 +1031,3 @@ if __name__ == "__main__":
 ```
 
 ---
-
-*chaos-jungle — local README, do not push.*
