@@ -107,14 +107,17 @@ mock service and need no LLM variables. Each job tests one of latency,
 rather than the editable checkout. The `agent_tool_result`,
 `agent_tool_result_requests`, and `agent_prompt_input` jobs independently
 check CJ's in-process injection against a local synthetic agent service; they
-also run automatically after the wheel build. The manual `resource_cpu_experiment`
-and `resource_memory_experiment` jobs each use that wheel and run bounded stress
+also run automatically after the wheel build. The `resource_cpu_experiment`
+and `resource_memory_experiment` jobs run automatically on protected `main` after
+the wheel build. They are serialized and run bounded stress
 cases in separate CI job containers. The CPU case pins itself and its
 children to one CPU at low priority; the memory case allocates 64 MiB after a
 headroom check. CJ's opt-in preflight installs `stress-ng` in each container
 before the baseline; the wheel installation does not install the system tool. Neither
 case requires a runner-configured cgroup limit, but neither gives a hard host
-resource limit, so keep both jobs manual on shared runners.
+resource limit. Keep them restricted to protected `main` and use a dedicated
+runner when available; serialization prevents only this project's resource
+jobs from overlapping, not other projects' workloads.
 These jobs are smoke tests, not benchmarks. The live jobs make 24 endpoint
 calls across the three cases per protected-branch pipeline and can fail if the
 external service is unavailable. Their database and metrics artifacts may

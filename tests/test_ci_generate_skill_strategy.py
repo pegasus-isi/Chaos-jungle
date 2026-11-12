@@ -95,6 +95,15 @@ def test_strategy_validation_and_markdown():
     assert "not an executed experiment" in report
     assert "Live routing not yet verified" in report
 
+    strategy["cases"][0]["controls"] = ["Direct", "CJ pass-through"]
+    parsed = parse_strategy(json.dumps(strategy), inventory)
+    assert parsed["cases"][0]["controls"] == "Direct; CJ pass-through"
+
+    strategy["cases"][0]["controls"] = []
+    with pytest.raises(ValueError, match="controls must be a nonempty string"):
+        parse_strategy(json.dumps(strategy), inventory)
+
+    strategy["cases"][0]["controls"] = "Direct and CJ pass-through"
     strategy["cases"][0]["source_paths"] = ["not-in-repo.py"]
     with pytest.raises(ValueError, match="outside the inventory"):
         parse_strategy(json.dumps(strategy), inventory)
@@ -109,6 +118,7 @@ def test_skill_content_is_passed_as_instructions_not_repo_commands():
     assert "untrusted evidence" in messages[0]["content"]
     assert "evaluation guidance" in messages[1]["content"]
     assert "CJ exports" in messages[1]["content"]
+    assert "nonempty string fields" in messages[0]["content"]
 
 
 def test_strategy_request_uses_bounded_output_and_timeout(monkeypatch):
@@ -192,3 +202,47 @@ def test_main_writes_reviewable_artifacts_without_a_live_model(tmp_path, monkeyp
     assert (output / "strategy.md").read_text().startswith("# Skill-guided CJ test strategy")
     assert json.loads((output / "generation.json").read_text())["case_count"] == 3
     assert json.loads((output / "repository-inventory.json").read_text())["working_tree_clean"]
+
+
+def test_main_requests_one_correction_for_invalid_controls(tmp_path, monkeypatch):
+    inventory = {"revision": "abc123", "source_paths": ["README.md"], "summaries": {}}
+    strategy = {
+        "system_under_test": "SWARM+",
+        "cases": [_case(name, "README.md") for name in ("one", "two", "three")],
+        "execution_order": ["healthy", "fault"],
+        "unknowns": [],
+        "artifact_contract": ["run manifest"],
+    }
+    invalid = json.loads(json.dumps(strategy))
+    invalid["cases"][0]["controls"] = ""
+    first_response = json.dumps(invalid)
+    corrected_response = json.dumps(strategy)
+    responses = [first_response, corrected_response]
+    calls = []
+
+    def fake_request(base, model, key, messages, **kwargs):
+        calls.append(messages)
+        return responses.pop(0)
+
+    cj_root = tmp_path / "cj"
+    (cj_root / "chaos_jungle").mkdir(parents=True)
+    (cj_root / "chaos_jungle" / "__init__.py").write_text("# exports")
+    monkeypatch.setattr("ci.generate_skill_strategy.discover_repository", lambda _: inventory)
+    monkeypatch.setattr("ci.generate_skill_strategy.load_skills", lambda _: {})
+    monkeypatch.setattr(
+        "ci.generate_skill_strategy.model_config",
+        lambda _: ("https://example.invalid/v1", "test-model", "test-key"),
+    )
+    monkeypatch.setattr("ci.generate_skill_strategy.request_strategy", fake_request)
+    output = tmp_path / "output"
+    monkeypatch.setattr(sys, "argv", [
+        "generate_skill_strategy.py", "--repo", str(tmp_path),
+        "--skills-dir", str(tmp_path), "--cj-root", str(cj_root),
+        "--output-dir", str(output),
+    ])
+    main()
+    assert len(calls) == 2
+    assert "controls must be a nonempty string" in calls[1][-1]["content"]
+    assert json.loads((output / "strategy.json").read_text())["cases"][0]["controls"]
+    assert (output / "model-response.txt").read_text() == first_response + "\n"
+    assert (output / "model-response-retry.txt").read_text() == corrected_response + "\n"

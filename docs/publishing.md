@@ -54,8 +54,9 @@ the imports resolve to the built package rather than the source checkout. They
 are integration smoke checks, not benchmark estimates; two trials per
 condition are too few for stable latency percentiles or confidence intervals.
 
-The optional `resource_cpu_experiment` and `resource_memory_experiment` jobs
-each wait for `build_dist` and install its wheel. They run independent CJ
+The `resource_cpu_experiment` and `resource_memory_experiment` jobs run
+automatically on protected `main` after `build_dist` and install its wheel.
+They are serialized and run independent CJ
 `CPUStress` and `MemoryStress` scenarios in separate CI job containers,
 each with two baseline and two fault trials.
 After refreshing the Debian package index, the script uses CJ preflight's
@@ -69,9 +70,10 @@ The job saves separate databases, metrics, and summaries under
 `ci-artifacts/resource-experiment/cpu/` and `memory/`. CPU evidence is the
 stress worker's CPU time; memory evidence is its resident memory. The result
 also reports workload throughput, activation, and cleanup. No runner CPU quota
-is required, but affinity and low priority are not hard host isolation: keep
-this job manual on shared runners. These short comparisons are smoke checks,
-not performance estimates.
+is required, but affinity and low priority are not hard host isolation.
+Serialization prevents these two jobs from overlapping, not jobs from other
+projects; a dedicated runner is preferable. These short comparisons are smoke
+checks, not performance estimates.
 
 For live-run diagnosis, each job logs the endpoint scheme, host, port, and
 path, the configured model, and whether an API key is present. It never logs

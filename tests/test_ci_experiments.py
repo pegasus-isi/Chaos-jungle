@@ -2,8 +2,10 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
+import yaml
 
 from ci.run_real_experiment import run_experiment as run_model_experiment
 from ci.run_agent_use_case import run_case as run_agent_case
@@ -13,6 +15,22 @@ from ci.run_resource_experiment import (
     prepare_container,
     stress_process_stats,
 )
+
+
+def test_resource_jobs_run_automatically_after_build_on_protected_main():
+    config = yaml.safe_load((Path(__file__).resolve().parents[1] / ".gitlab-ci.yml").read_text())
+    template = config[".resource_experiment"]
+    assert template["needs"] == [{"job": "build_dist", "artifacts": True}]
+    assert template["resource_group"] == "ci-resource-stress"
+    assert template["rules"] == [
+        {
+            "if": '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"',
+            "when": "on_success",
+        },
+        {"when": "never"},
+    ]
+    assert config["resource_cpu_experiment"]["extends"] == ".resource_experiment"
+    assert config["resource_memory_experiment"]["extends"] == ".resource_experiment"
 
 
 @pytest.mark.parametrize(

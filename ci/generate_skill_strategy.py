@@ -171,9 +171,11 @@ def build_messages(inventory: dict, skills: dict[str, str], cj_exports: str) -> 
         "Return only one concise JSON object with keys system_under_test (string), cases "
         "(array of exactly 3 objects), execution_order (array of strings), unknowns "
         "(array of strings), and artifact_contract (array of strings). Each case must "
-        "have id, objective, source_paths (array of paths present in the inventory), "
-        "workload, fault, injection_boundary, controls, outcome_metrics (array), "
-        "exposure_evidence (array), recovery_check, safety, and artifacts (array). "
+        "have nonempty string fields id, objective, workload, fault, "
+        "injection_boundary, controls, recovery_check, and safety; array-of-string "
+        "fields source_paths, outcome_metrics, exposure_evidence, and artifacts. "
+        "source_paths must cite paths present in the inventory. controls must name "
+        "a healthy comparison without the fault. "
         "Use empty source_paths if the repository has no supporting file. Distinguish "
         "application outcomes from CJ exposure and cleanup. Include an untriggered "
         "case and an explicit healthy control. State unsupported or unverified "
@@ -252,6 +254,11 @@ def parse_strategy(content: str, inventory: dict) -> dict:
     for case in cases:
         if not isinstance(case, dict) or any(field not in case for field in CASE_FIELDS):
             raise ValueError("A test case is missing required fields")
+        controls = case["controls"]
+        if isinstance(controls, list) and controls and all(
+            isinstance(item, str) and item.strip() for item in controls
+        ):
+            case["controls"] = "; ".join(item.strip() for item in controls)
         if not isinstance(case["source_paths"], list) or not all(
             isinstance(path, str) for path in case["source_paths"]
         ):
@@ -322,12 +329,37 @@ def main() -> None:
     )[:2500]
     base, model, key = model_config(os.environ)
     messages = build_messages(inventory, skills, cj_exports)
+    reasoning_effort = os.environ.get("CJ_STRATEGY_REASONING_EFFORT")
     content = request_strategy(
         base, model, key, messages,
-        reasoning_effort=os.environ.get("CJ_STRATEGY_REASONING_EFFORT"),
+        reasoning_effort=reasoning_effort,
     )
     (args.output_dir / "model-response.txt").write_text(content + "\n", encoding="utf-8")
-    strategy = parse_strategy(content, inventory)
+    try:
+        strategy = parse_strategy(content, inventory)
+    except ValueError as error:
+        print("Strategy response failed validation: {}. Requesting one correction.".format(error), flush=True)
+        repair_messages = messages + [
+            {"role": "assistant", "content": content},
+            {"role": "user", "content": (
+                "Your JSON failed validation: {}. Return the complete corrected JSON object "
+                "only. Preserve the three test cases and use the required field types."
+            ).format(error)},
+        ]
+        corrected = request_strategy(
+            base, model, key, repair_messages, reasoning_effort=reasoning_effort,
+        )
+        (args.output_dir / "model-response-retry.txt").write_text(
+            corrected + "\n", encoding="utf-8"
+        )
+        try:
+            strategy = parse_strategy(corrected, inventory)
+        except ValueError as retry_error:
+            (args.output_dir / "validation-error.txt").write_text(
+                "Initial response: {}\nCorrected response: {}\n".format(error, retry_error),
+                encoding="utf-8",
+            )
+            raise
     (args.output_dir / "strategy.json").write_text(
         json.dumps(strategy, indent=2) + "\n", encoding="utf-8"
     )
