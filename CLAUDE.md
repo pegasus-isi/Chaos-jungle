@@ -102,8 +102,13 @@ Since the current variables are protected, run the manual
 `real_llm_experiment` job from the protected `main` branch. The job fails before
 installation if a variable is missing; `ci/run_real_experiment.py` then checks
 the URL and uses the values for its live calls. The separate `real_experiment`
-job uses a local mock service and needs no LLM variables. Neither job is a
-benchmark. The live job's database and metrics artifact may contain prompts
-and model responses, so restrict artifact access and retention accordingly.
+job uses a local mock service and needs no LLM variables. Both jobs run latency,
+503-unavailable, and 429-rate-limit cases after `build_dist`, installing its
+wheel rather than the editable checkout. The manual `resource_experiment` job
+also uses that wheel and runs a bounded CPU-stress case inside its own Docker
+job container; it requires a runner-configured cgroup limit of at most one CPU.
+These jobs are smoke tests, not benchmarks. The live job's database and metrics
+artifact may contain prompts and model responses, so restrict artifact access
+and retention accordingly.
 
 See `docs/publishing.md` for the longer release checklist.

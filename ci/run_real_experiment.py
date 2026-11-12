@@ -12,10 +12,11 @@ import time
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from chaos_jungle import ChaosRunner, LLMLatency, LocalTarget, Scenario
+from chaos_jungle import ChaosRunner, LLMLatency, LLMRateLimit, LLMUnavailable, LocalTarget, Scenario
 from chaos_jungle.db.session_db import SessionDB
 from chaos_jungle.metrics import CollectStrategy
 
@@ -85,7 +86,7 @@ def live_model_config() -> tuple[str, str, str]:
     return base_url, model, api_key
 
 
-def run_experiment(output_dir: Path, mode: str = "local") -> None:
+def run_experiment(output_dir: Path, mode: str = "local", fault_name: str = "latency") -> None:
     server = None
     server_thread = None
     if mode == "live":
@@ -107,11 +108,22 @@ def run_experiment(output_dir: Path, mode: str = "local") -> None:
     db = SessionDB(path=str(output_dir / "session.db"))
     previous_base_url = os.environ.get("OPENAI_BASE_URL")
     os.environ["OPENAI_BASE_URL"] = base_url
-    fault = LLMLatency(delay_s=delay_s, port=free_loopback_port(), upstream=upstream)
-    runner = ChaosRunner(Scenario("ci-{}-proxy-latency".format(mode), [fault]), LocalTarget(), db=db)
+    port = free_loopback_port()
+    if fault_name == "latency":
+        fault = LLMLatency(delay_s=delay_s, port=port, upstream=upstream)
+    elif fault_name == "unavailable":
+        fault = LLMUnavailable(port=port, upstream=upstream)
+    elif fault_name == "rate-limit":
+        fault = LLMRateLimit(n=0, port=port, upstream=upstream)
+    else:
+        raise ValueError("Unsupported fault: {}".format(fault_name))
+    runner = ChaosRunner(
+        Scenario("ci-{}-proxy-{}".format(mode, fault_name), [fault]), LocalTarget(), db=db
+    )
 
     def workload() -> dict[str, float]:
         durations_ms = []
+        status_codes = []
         for _ in range(calls_per_trial):
             body = json.dumps(
                 {"model": model, "messages": [{"role": "user", "content": "Reply briefly to ping."}],
@@ -126,16 +138,31 @@ def run_experiment(output_dir: Path, mode: str = "local") -> None:
                 headers=headers,
             )
             started = time.perf_counter()
-            with urlopen(request, timeout=30) as response:
-                payload = json.load(response)
-                assert response.status == 200
-                assert payload["choices"], "model returned no choices"
+            try:
+                with urlopen(request, timeout=30) as response:
+                    payload = json.load(response)
+                    assert response.status == 200
+                    assert payload["choices"], "model returned no choices"
+                    status_codes.append(response.status)
+            except HTTPError as error:
+                if os.environ["OPENAI_BASE_URL"] == base_url:
+                    raise RuntimeError(
+                        "Baseline model request returned HTTP {}; fault was not started".format(
+                            error.code
+                        )
+                    ) from error
+                status_codes.append(error.code)
             durations_ms.append((time.perf_counter() - started) * 1000)
+        successes = status_codes.count(200)
         return {
             "duration_s": sum(durations_ms) / 1000,
             "p50_latency_ms": statistics.median(durations_ms),
             "p99_latency_ms": max(durations_ms),
-            "success": 1.0,
+            "success": float(successes == calls_per_trial),
+            "completion_rate": successes / calls_per_trial,
+            "error_rate": (calls_per_trial - successes) / calls_per_trial,
+            "http_429_count": status_codes.count(429),
+            "http_503_count": status_codes.count(503),
         }
 
     try:
@@ -148,6 +175,7 @@ def run_experiment(output_dir: Path, mode: str = "local") -> None:
 
         report = {
             "mode": mode,
+            "fault_name": fault_name,
             "interpretation": "CI integration smoke test; not a statistical performance estimate",
             "scenario": result.scenario,
             "session_id": result.session_id,
@@ -170,17 +198,36 @@ def run_experiment(output_dir: Path, mode: str = "local") -> None:
             + result.summary() + "\n"
         )
         print(result.summary())
+        print("Fault case:", fault_name)
         print("Exposure verdict:", exposure["verdict"] if exposure else "missing")
         print("Artifacts:", output_dir.resolve())
 
         assert exposure is not None and exposure["verdict"] == "valid", exposure
         assert all(item["recovered"] for item in exposure["faults"]), exposure
         assert len(calls) == 2 * calls_per_trial, "unexpected proxied call count"
-        assert all(call["fault_triggered"] for call in calls)
-        if mode == "local":
+        assert all(row["http_429_count"] == row["http_503_count"] == 0 for row in result.raw_baseline)
+        assert all(row["success"] == 1 for row in result.raw_baseline)
+        if fault_name == "latency":
+            assert all(call["fault_triggered"] for call in calls)
+            assert all(call["http_status"] == 200 for call in calls)
+            assert all(row["success"] == 1 for row in result.raw_fault)
+        elif fault_name == "unavailable":
+            assert all(call["fault_triggered"] for call in calls)
+            assert all(call["http_status"] == 503 for call in calls)
+            assert sum(row["http_503_count"] for row in result.raw_fault) == len(calls)
+        else:
+            assert all(call["fault_triggered"] for call in calls)
+            assert all(call["http_status"] == 429 for call in calls)
+            assert sum(row["http_429_count"] for row in result.raw_fault) == len(calls)
+        if mode == "local" and fault_name == "latency":
             assert result.delta["duration_s"] >= 0.25, result.summary()
         assert result.collected_metrics is not None
-        assert set(fault.default_metrics) <= set(result.collected_metrics.delta)
+        observed_metrics = {
+            "latency": {"duration_s", "p50_latency_ms", "p99_latency_ms"},
+            "unavailable": {"error_rate", "http_503_count", "completion_rate"},
+            "rate-limit": {"error_rate", "http_429_count", "duration_s"},
+        }
+        assert observed_metrics[fault_name] <= set(result.collected_metrics.delta)
         assert session is not None and session["status"] == "reverted", session
     finally:
         if server is not None:
@@ -197,6 +244,7 @@ def run_experiment(output_dir: Path, mode: str = "local") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("local", "live"), default="local")
+    parser.add_argument("--fault", choices=("latency", "unavailable", "rate-limit"), default="latency")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    run_experiment(args.output_dir, mode=args.mode)
+    run_experiment(args.output_dir, mode=args.mode, fault_name=args.fault)

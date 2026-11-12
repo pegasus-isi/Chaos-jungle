@@ -19,17 +19,23 @@ unit_tests:
     - python -m pytest tests/ -q --strict-markers
 
 real_experiment:
-  stage: test
+  stage: verify
   image: python:3.12-slim
   timeout: 5m
+  needs:
+    - job: build_dist
+      artifacts: true
   rules:
     - if: '$CI_COMMIT_TAG'
       when: never
     - when: manual
       allow_failure: true
   script:
-    - python -m pip install -e .
-    - python ci/run_real_experiment.py --output-dir ci-artifacts/real-experiment
+    - python -m pip install dist/*.whl
+    - cd /tmp
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault latency --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/latency"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault unavailable --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/unavailable"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --fault rate-limit --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-experiment/rate-limit"
   artifacts:
     when: always
     paths:
@@ -37,9 +43,12 @@ real_experiment:
     expire_in: 1 week
 
 real_llm_experiment:
-  stage: test
+  stage: verify
   image: python:3.12-slim
-  timeout: 5m
+  timeout: 10m
+  needs:
+    - job: build_dist
+      artifacts: true
   rules:
     - if: '$CI_COMMIT_TAG'
       when: never
@@ -52,12 +61,38 @@ real_llm_experiment:
     - ': "${CJ_EVAL_BASE_URL:?Set CJ_EVAL_BASE_URL in GitLab CI/CD Variables}"'
     - ': "${CJ_EVAL_MODEL:?Set CJ_EVAL_MODEL in GitLab CI/CD Variables}"'
     - ': "${CJ_EVAL_API_KEY:?Set CJ_EVAL_API_KEY in GitLab CI/CD Variables}"'
-    - python -m pip install -e .
-    - python ci/run_real_experiment.py --mode live --output-dir ci-artifacts/real-llm-experiment
+    - python -m pip install dist/*.whl
+    - cd /tmp
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault latency --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/latency"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault unavailable --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/unavailable"
+    - python "$CI_PROJECT_DIR/ci/run_real_experiment.py" --mode live --fault rate-limit --output-dir "$CI_PROJECT_DIR/ci-artifacts/real-llm-experiment/rate-limit"
   artifacts:
     when: always
     paths:
       - ci-artifacts/real-llm-experiment/
+    expire_in: 1 week
+
+resource_experiment:
+  stage: verify
+  image: python:3.12-slim
+  timeout: 10m
+  needs:
+    - job: build_dist
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: never
+    - when: manual
+      allow_failure: true
+  script:
+    - apt-get update && apt-get install -y --no-install-recommends stress-ng procps
+    - python -m pip install dist/*.whl
+    - cd /tmp
+    - python "$CI_PROJECT_DIR/ci/run_resource_experiment.py" --output-dir "$CI_PROJECT_DIR/ci-artifacts/resource-experiment"
+  artifacts:
+    when: always
+    paths:
+      - ci-artifacts/resource-experiment/
     expire_in: 1 week
 
 lint:
@@ -67,6 +102,7 @@ lint:
     - python -m pip install "ruff==0.17.4"
     - python ci/check_ruff_baseline.py
     - python -m ruff check ci/run_real_experiment.py
+    - python -m ruff check ci/run_resource_experiment.py ci/resource_workload.py
 
 docs_build:
   stage: test

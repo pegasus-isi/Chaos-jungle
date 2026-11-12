@@ -13,32 +13,50 @@ the exact files that would be published. Runtime scripts under
 The `docs_build` job also renders this Sphinx manual and makes its HTML output
 available as a GitLab job artifact for review.
 
-The optional `real_experiment` job runs a bounded integration experiment in its
-disposable CI container. It makes real HTTP calls through CJ's model proxy to
-a local, deterministic OpenAI-compatible service, first without a fault and
-then with a latency fault. It does not call an external LLM or require API
-credentials. Start it manually from a branch pipeline. Its
-`ci-artifacts/real-experiment/` artifact contains the SQLite session database,
-`metrics.json` (including the fault's declared default metrics and exposure
-report), and `summary.txt`. The job checks fault manifestation and cleanup; it
-is optional, so a skipped or failed experiment does not block packaging.
+The optional `real_experiment` job runs bounded integration experiments in its
+disposable CI container. It sends real HTTP calls through CJ's model proxy to
+a local, deterministic OpenAI-compatible service, comparing baseline calls
+with three separate fault scenarios: 120 ms latency, HTTP 503 unavailability,
+and HTTP 429 rate limiting. It does not call an external LLM or require API
+credentials. Start it manually from a branch pipeline. Each scenario has its
+own SQLite session database, `metrics.json` (including the fault's declared
+default metrics and exposure report), and `summary.txt` under
+`ci-artifacts/real-experiment/`. The job checks the expected response,
+exposure, and cleanup; it is optional, so a skipped or failed experiment does
+not block packaging.
 
 For an actual model endpoint, set `CJ_EVAL_BASE_URL` to an OpenAI-compatible
 base URL ending in `/v1`, `CJ_EVAL_MODEL` to a model name, and
 `CJ_EVAL_API_KEY` to a masked GitLab CI/CD variable. Then start the separate
 manual `real_llm_experiment` job from a protected branch such as `main` when
 using protected variables. GitLab injects these variables into the job; the
-YAML checks that they are present but never contains their values. It sends
-four baseline and four fault requests
-with a small token limit and adds a 250 ms model-proxy delay. Its artifact has
-the same database, JSON metrics, and summary as the local job. The endpoint
+YAML checks that they are present but never contains their values. The live
+job repeats the same three scenarios, with a 250 ms delay in the latency case
+and a small token limit on requests. Each case has two baseline and two fault
+trials, with two model calls per trial. Its artifact has a separate database,
+JSON metrics, and summary for each case. The endpoint
 must be reachable from the Docker runner; loopback URLs refer to the job
 container, not your laptop. The database captures the synthetic prompt and
 model response, so restrict artifact access if those responses are sensitive.
 Do not place credentials in the base URL.
-Both jobs are integration smoke checks, not benchmark estimates; their two
-trials per condition are too few for stable latency percentiles or confidence
-intervals.
+These jobs install the wheel produced by `build_dist` and run from `/tmp`, so
+the imports resolve to the built package rather than the source checkout. They
+are integration smoke checks, not benchmark estimates; two trials per
+condition are too few for stable latency percentiles or confidence intervals.
+
+The optional `resource_experiment` job also waits for `build_dist` and installs
+its wheel. It runs CJ's `CPUStress` and a short CPU-bound workload inside the
+same Docker job container, recording throughput, cgroup throttling, the fault's
+declared default-metric names, activation checks, and recovery in
+`ci-artifacts/resource-experiment/`. The collected comparison uses only
+container-local measurements; a generic `top` CPU percentage could describe
+the runner host rather than this container.
+It starts one stress worker for at most eight seconds. Before activation, the
+script requires a Docker container with a cgroup CPU quota of at most one CPU;
+without that runner setting it stops rather than loading a shared host.
+Configure the GitLab Docker runner's CPU limit accordingly before starting
+this manual job. The throughput comparison is descriptive, not a performance
+claim from two trials.
 
 For live-run diagnosis, the job logs the endpoint scheme, host, port, and
 path, the configured model, and whether an API key is present. It never logs
