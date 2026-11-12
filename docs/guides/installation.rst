@@ -47,19 +47,50 @@ Target requirements
 
 In-process HTTP interception can run without Linux privileges. Infrastructure
 faults act on a target machine or container and may require Linux utilities,
-container access, or elevated privileges. Check the relevant fault guide and
-run preflight before applying a fault. Installing the Python package alone
-does not install system tools on remote targets. With ``auto_install=True`` on
-``ChaosRunner``, preflight can install missing declared tools such as
-``stress-ng``, ``tc`` (``iproute2``), and ``iptables`` using the target's package
-manager. This is opt-in and requires package-installation privileges on that
-target; it does not install a Docker daemon, enable systemd, or grant kernel
-capabilities.
+container access, or elevated privileges. Installing the Python package alone
+does not install system tools on local or remote targets. Before an experiment,
+use ``chaos-jungle deps check`` to inspect the commands declared by a fault:
+
+.. code-block:: bash
+
+   chaos-jungle deps check --fault CPUStress
+   chaos-jungle deps check --fault NetworkDelay --target ssh://user@worker1
+   chaos-jungle deps check --all
+
+``check`` is read-only and exits nonzero when a selected fault has missing
+requirements. Fault names are built-in class names; ``cpu``, ``memory``, and
+``io`` are shortcuts. Repeat ``--fault`` to check several faults. ``--all``
+checks the mapped system commands declared across built-in faults, while
+listing requirements that need separate setup.
+
+To install only the missing mapped system packages, run:
+
+.. code-block:: bash
+
+   chaos-jungle deps install --fault CPUStress
+   chaos-jungle deps install --fault NetworkDelay --target ssh://user@worker1
+   chaos-jungle deps install --all
+
+CJ shows the planned packages and asks for confirmation. Use ``--yes`` only
+in trusted automation. Installation requires package-manager privileges on
+the selected target; CJ uses APT on Debian/Ubuntu and DNF or YUM on
+Fedora/RHEL-family systems. For example, ``NetworkDelay`` needs ``iproute2``
+on Debian and ``iproute`` on RPM systems; ``ProcessKill`` needs ``procps``
+and ``procps-ng``, respectively. Prefer ``--fault`` to avoid installing tools
+for unrelated experiments. This command does not install Docker or start its
+daemon, provision systemd, configure kernel/BPF capabilities, or install
+target-side Python packages such as ``python-crontab``. A fault-specific
+``install`` exits nonzero if such manual requirements remain; ``--all``
+reports them outside its package-installation scope. Check the relevant fault
+guide before applying a fault.
+
+``ChaosRunner(..., auto_install=True)`` is a separate opt-in path that checks
+and installs declared dependencies during fault preflight. It also requires
+installation privileges and does not satisfy runtime or privilege requirements.
 
 The following tools are needed on the **target**, not necessarily on the
-machine running CJ. The listed packages are checked during fault preflight;
-``auto_install=True`` lets CJ install missing declared packages where the
-target has a supported package manager and installation privileges.
+machine running CJ. Fault preflight checks the declared packages; the CLI
+commands above allow inspection and opt-in installation before the run.
 
 .. list-table:: Target-side dependencies for command-based faults
    :header-rows: 1

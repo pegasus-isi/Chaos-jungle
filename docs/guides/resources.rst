@@ -72,6 +72,17 @@ injection; this requires installation privileges on that target. In a fresh
 Debian container, refresh the package index first with ``apt-get update``.
 Installing the Python package itself does not install or start ``stress-ng``.
 
+To check or install the command before an experiment, use the CLI instead:
+
+.. code-block:: bash
+
+   chaos-jungle deps check --fault CPUStress
+   chaos-jungle deps install --fault CPUStress
+
+The same command applies to ``MemoryStress`` and ``IOStress`` by changing the
+fault name. Installation asks for confirmation; see :doc:`installation` for
+remote targets and package-manager behavior.
+
 Alternatively, install the tool yourself:
 
 .. code-block:: bash

@@ -25,6 +25,14 @@ Choose the target from the fault's execution namespace, not from the controller'
 
 Network faults typically need only `NET_ADMIN`. Resource faults need bounded container CPU/memory limits and `stress-ng`. Disk faults must point at a size-limited disposable mount. Process faults require deterministic PID or event targeting.
 
+Install required commands in the disposable image or container namespace.
+The `chaos-jungle deps` CLI accepts local, SSH, and HTTP targets, but not a
+`DockerTarget` selector; running it locally would inspect or alter the host.
+For a container experiment, prepare the image or use target-aware CJ preflight
+with the exact `DockerTarget` when explicitly authorized. Neither a successful
+package install nor `deps check --all` supplies Docker daemon access, systemd,
+target-side Python packages, kernel features, or the needed privileges.
+
 Use `DockerContainerControllerTarget` only when the container itself is the subject, such as `ContainerKill`. It is intentionally restricted to supported Docker actions on its configured container ID.
 
 ## Reachability Check

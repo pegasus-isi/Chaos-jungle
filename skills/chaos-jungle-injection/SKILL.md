@@ -1,6 +1,6 @@
 ---
 name: chaos-jungle-injection
-description: Design, implement, or review Chaos Jungle fault-injection experiments using the correct CJ fault, target, routing, lifecycle, safety boundary, and evidence. Use for LLM/API, tool, semantic, network, resource, process, container, state, or distributed fault injection with the chaos-jungle Python package.
+description: Design, implement, or review Chaos Jungle fault-injection experiments using the correct CJ fault, target, prerequisites, routing, lifecycle, safety boundary, and evidence. Use for LLM/API, tool, semantic, network, resource, process, container, state, or distributed fault injection with the chaos-jungle Python package.
 ---
 
 # Chaos Jungle Injection
@@ -34,6 +34,23 @@ If any of these are unknown, inspect the application and CJ package before choos
 Read [target selection](references/target-selection.md) when choosing or reviewing a target. Read [proxy routing](references/proxy-routing.md) for LLM, role-scoped, or tool faults.
 
 For concrete implementation patterns, read [injection recipes](references/injection-recipes.md). Choose the narrowest recipe whose injection point is guaranteed to be reached; do not copy an infrastructure recipe onto the host merely because it is simpler.
+
+## Prepare The Target
+
+For faults that declare system dependencies, check the **fault target**, not
+the controller host. On a local or SSH target, use the installed CLI's
+`chaos-jungle deps check --fault CPUStress` (with `--target ssh://...` when
+appropriate) if that command is available. Prefer a fault-specific check;
+`--all` means all mapped command packages, not all runtime requirements.
+
+Install only with the user's authorization and on the intended target:
+`chaos-jungle deps install --fault CPUStress` previews and confirms the
+package changes. Reserve `--yes` for approved, disposable automation. The
+CLI uses APT on Debian/Ubuntu and DNF or YUM on RPM systems. A successful
+dependency check does not prove that Docker, systemd, target-side Python
+packages, kernel support, privileges, or the fault's workload path are ready.
+For container targets, follow [target selection](references/target-selection.md);
+do not run a local CLI install as a substitute for preparing the container.
 
 ## Define The Experiment
 
@@ -79,6 +96,7 @@ Read [evidence and reporting](references/evidence.md) before claiming that an in
 
 - Never apply network, disk, CPU, memory, process, or similar infrastructure faults through `LocalTarget` when the intended subject is a container.
 - Never fall back from `DockerTarget` to the host.
+- Never install fault dependencies on the host when the intended target is a container.
 - Never mount the Docker socket into an experiment container or use Docker-in-Docker.
 - Use disposable volumes for disk and storage faults.
 - Do not use privileged containers when a narrow capability such as `NET_ADMIN` is sufficient.

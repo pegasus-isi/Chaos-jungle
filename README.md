@@ -60,11 +60,22 @@ python3 -m venv .venv
 python -m pip install git+https://github.com/pegasus-isi/Chaos-jungle.git@main
 ```
 
-System dependencies on the target machine (network faults):
+Check system commands on the target before running a fault. The check does not
+change the target; installation requires confirmation and package-manager
+privileges. On Debian/Ubuntu CJ uses APT; on Fedora/RHEL-family systems it uses
+DNF or YUM. Use the built-in fault class name (or `cpu`, `memory`, `io`):
 
 ```bash
-sudo apt install iproute2 e2fsprogs inotify-tools
+chaos-jungle deps check --fault NetworkDelay
+chaos-jungle deps install --fault NetworkDelay
+chaos-jungle deps check --all
+chaos-jungle deps install --all
 ```
+
+Add `--target ssh://user@host` for an SSH target or `--yes` to skip the install
+confirmation in trusted automation. `--all` covers mapped system commands, not
+Docker daemon access, systemd, kernel capabilities, or target-side Python
+packages. See the [installation guide](docs/guides/installation.rst) for limits.
 
 ---
 
@@ -794,6 +805,8 @@ chaos-jungle start          Start fault injection
 chaos-jungle stop           Stop and revert the active session
 chaos-jungle status         Show current running session
 chaos-jungle list           List all sessions with status / duration
+chaos-jungle deps check     Report missing commands for --fault NAME or --all
+chaos-jungle deps install   Confirm and install mapped system commands
 
 chaos-jungle export         Write session data to a file
   --session ID              Export a specific session (default: latest)

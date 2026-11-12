@@ -64,7 +64,11 @@ container:
 
    runner.stop()
 
-Requirements for network faults::
+Check and optionally install the command dependency before the run with
+``chaos-jungle deps check --fault NetworkDelay`` and
+``chaos-jungle deps install --fault NetworkDelay``. The latter detects APT,
+DNF, or YUM and asks for confirmation. For manual Debian installation and
+network privileges::
 
    sudo apt-get install -y iproute2          # Ubuntu / Debian
    # the SSH user also needs passwordless sudo for tc:

@@ -184,13 +184,27 @@ class Preflight:
         """Return the available system package manager, or ``None``."""
         if self._mgr is not None:
             return self._mgr
-        for cmd, key in [
+        candidates = [
             ("apt-get", "apt"),
             ("dnf",     "dnf"),
             ("yum",     "yum"),
             ("apk",     "apk"),
             ("brew",    "brew"),
-        ]:
+        ]
+        code, os_release, _ = self.target.run("cat /etc/os-release 2>/dev/null")
+        if code == 0:
+            labels = set()
+            for line in os_release.splitlines():
+                key, _, value = line.partition("=")
+                if key in {"ID", "ID_LIKE"}:
+                    labels.update(value.strip().strip('"').strip("'").lower().split())
+            if labels & {"fedora", "rhel", "centos", "rocky", "almalinux", "ol"}:
+                candidates = [("dnf", "dnf"), ("yum", "yum")]
+            elif labels & {"debian", "ubuntu"}:
+                candidates = [("apt-get", "apt")]
+            elif "alpine" in labels:
+                candidates = [("apk", "apk")]
+        for cmd, key in candidates:
             code, _, _ = self.target.run(f"which {cmd} 2>/dev/null")
             if code == 0:
                 self._mgr = key
@@ -206,10 +220,12 @@ class Preflight:
                 code, _, _ = self.target.run(f"which {binary} 2>/dev/null")
                 is_missing = code != 0
             else:
+                mgr = self.detect_pkg_manager()
+                package = PKG_MAP.get(pkg, {}).get(mgr, pkg)
                 code, _, _ = self.target.run(
-                    f"(dpkg -s {pkg} 2>/dev/null | grep -q 'installed') || "
-                    f"(rpm -q {pkg} 2>/dev/null | grep -qv 'not installed') || "
-                    f"(apk info {pkg} 2>/dev/null | grep -q {pkg})"
+                    f"(dpkg -s {package} 2>/dev/null | grep -q 'installed') || "
+                    f"(rpm -q {package} 2>/dev/null | grep -qv 'not installed') || "
+                    f"(apk info {package} 2>/dev/null | grep -q {package})"
                 )
                 is_missing = code != 0
             if is_missing:
@@ -220,7 +236,9 @@ class Preflight:
 
     def install_package(self, canonical: str, mgr: str) -> None:
         """Install a single system package on the target."""
-        pkg_name = PKG_MAP.get(canonical, {}).get(mgr, canonical)
+        pkg_name = PKG_MAP.get(canonical, {}).get(mgr)
+        if pkg_name is None:
+            raise RuntimeError(f"[preflight] No {mgr} package mapping for '{canonical}'")
         cmd = _INSTALL_CMDS[mgr].format(pkg=pkg_name)
         print(f"[preflight] Installing '{pkg_name}' via {mgr} ...", flush=True)
         code, _, stderr = self.target.sudo(cmd)

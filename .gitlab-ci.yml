@@ -223,3 +223,17 @@ verify_dist:
     - cd /tmp
     - python -c 'from importlib.metadata import version; from importlib.resources import files; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__; assert (files("chaos_jungle.scripts.bpf") / "flow_modify.c").is_file()'
     - chaos-jungle --help
+
+dependency_install:
+  stage: verify
+  image: python:3.12-bookworm
+  timeout: 20m
+  needs:
+    - job: build_dist
+      artifacts: true
+  script:
+    - python -m pip install dist/*.whl
+    - apt-get update
+    - cd /tmp
+    - chaos-jungle deps install --all --yes
+    - chaos-jungle deps check --all

@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json
 import sys
+from dataclasses import dataclass
 
 import click
 
@@ -10,6 +11,97 @@ from chaos_jungle.db.session_db import SessionDB
 from chaos_jungle.targets.local import LocalTarget
 from chaos_jungle.targets.ssh import SSHTarget
 from chaos_jungle.targets.http import HTTPTarget
+
+
+@dataclass
+class _DependencyPlan:
+    manager: str | None
+    installable: list[tuple[str, str, str | None]]
+    manual: list[tuple[str, str]]
+    python: list[str]
+    declared: set[str]
+
+
+def _selected_faults(fault_names: tuple[str, ...], all_faults: bool) -> list[str]:
+    from chaos_jungle.config import ConfigLoader
+
+    if all_faults == bool(fault_names):
+        raise click.UsageError("Specify --all or at least one --fault, but not both.")
+    kinds = ConfigLoader.registered_kinds()
+    if all_faults:
+        return kinds
+    by_name = {name.replace("-", "").replace("_", "").lower(): name for name in kinds}
+    by_name.update({"cpu": "CPUStress", "memory": "MemoryStress", "io": "IOStress"})
+    selected = []
+    for value in fault_names:
+        name = by_name.get(value.replace("-", "").replace("_", "").lower())
+        if name is None:
+            raise click.BadParameter(
+                f"Unknown fault {value!r}; use a built-in fault class name (e.g. CPUStress).",
+                param_hint="--fault",
+            )
+        if name not in selected:
+            selected.append(name)
+    return selected
+
+
+def _dependency_plan(preflight, selected: list[str]) -> _DependencyPlan:
+    import chaos_jungle.faults as fault_types
+    from chaos_jungle.core.preflight import PKG_MAP
+
+    classes = [getattr(fault_types, name) for name in selected]
+    declared = {dep for cls in classes for dep in cls.dependencies}
+    python = sorted({dep for cls in classes for dep in cls.pip_dependencies
+                     if not preflight._pip_installed(dep)})
+    manager = preflight.detect_pkg_manager()
+    installable = []
+    manual = []
+    for canonical, binary in preflight.check_missing(sorted(declared)):
+        if canonical == "systemd":
+            manual.append((canonical, "requires a running systemd service manager"))
+        elif canonical == "docker-cli":
+            manual.append((canonical, "Docker CLI and daemon access need separate setup"))
+        elif manager is None:
+            manual.append((canonical, "no supported package manager detected"))
+        elif manager not in PKG_MAP.get(canonical, {}):
+            manual.append((canonical, f"no {manager} package mapping"))
+        else:
+            installable.append((canonical, PKG_MAP[canonical][manager], binary))
+    return _DependencyPlan(manager, installable, manual, python, declared)
+
+
+def _show_dependency_plan(plan: _DependencyPlan, target: str, selected: list[str], all_faults: bool) -> None:
+    click.echo(f"Target: {target or 'local'}")
+    click.echo(f"Package manager: {plan.manager or 'not detected'}")
+    click.echo(f"Faults: {'all built-in faults' if all_faults else ', '.join(selected)}")
+    if plan.installable:
+        click.echo("Missing installable system commands:")
+        for canonical, package, binary in plan.installable:
+            click.echo(f"  {canonical} -> {package} (command: {binary or 'package check'})")
+    else:
+        click.echo("No missing installable system commands.")
+    if plan.manual:
+        click.echo("Manual system requirements (not installed by this command):")
+        for canonical, reason in plan.manual:
+            click.echo(f"  {canonical}: {reason}")
+    if plan.python:
+        click.echo("Target-side Python packages (not installed by this command):")
+        for package in plan.python:
+            click.echo(f"  {package}")
+    if "docker-cli" in plan.declared:
+        click.echo("Note: Docker daemon access is not checked.")
+    if "python3-bpfcc" in plan.declared:
+        click.echo("Note: BPF kernel support and privileges are not checked.")
+
+
+def _prepare_dependencies(fault_names: tuple[str, ...], all_faults: bool, target: str):
+    from chaos_jungle.core.preflight import Preflight
+
+    selected = _selected_faults(fault_names, all_faults)
+    preflight = Preflight(_make_target(target))
+    plan = _dependency_plan(preflight, selected)
+    _show_dependency_plan(plan, target, selected, all_faults)
+    return preflight, plan
 
 
 def _make_target(target_str: str | None):
@@ -42,6 +134,48 @@ def main():
     """chaos-jungle — inject and control chaos faults on any machine."""
 
 
+@main.group()
+def deps():
+    """Check or install fault-specific system commands on a target."""
+
+
+@deps.command("check")
+@click.option("--fault", "fault_names", multiple=True, help="Built-in fault name; repeat for multiple faults (cpu, memory, and io are aliases).")
+@click.option("--all", "all_faults", is_flag=True, help="Check installable commands for every built-in fault.")
+@click.option("--target", default="", help="Target: ssh://user@host or http://host:port (default: local).")
+def deps_check(fault_names: tuple[str, ...], all_faults: bool, target: str) -> None:
+    """Report missing commands without changing the target."""
+    _, plan = _prepare_dependencies(fault_names, all_faults, target)
+    if plan.installable or (not all_faults and (plan.manual or plan.python)):
+        raise click.exceptions.Exit(1)
+
+
+@deps.command("install")
+@click.option("--fault", "fault_names", multiple=True, help="Built-in fault name; repeat for multiple faults (cpu, memory, and io are aliases).")
+@click.option("--all", "all_faults", is_flag=True, help="Install mapped commands for every built-in fault.")
+@click.option("--target", default="", help="Target: ssh://user@host or http://host:port (default: local).")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt (for automation).")
+def deps_install(fault_names: tuple[str, ...], all_faults: bool, target: str, yes: bool) -> None:
+    """Install missing mapped system packages after confirmation."""
+    preflight, plan = _prepare_dependencies(fault_names, all_faults, target)
+    if plan.installable:
+        click.echo("Only the packages listed above will be installed on the selected target.")
+        if not yes:
+            click.confirm("Proceed?", default=False, abort=True)
+        for canonical, _, _ in plan.installable:
+            try:
+                preflight.install_package(canonical, plan.manager)
+            except RuntimeError as error:
+                raise click.ClickException(str(error)) from error
+        remaining = preflight.check_missing([item[0] for item in plan.installable])
+        if remaining:
+            names = ", ".join(item[0] for item in remaining)
+            raise click.ClickException(f"Commands still missing after installation: {names}")
+    if not all_faults and (plan.manual or plan.python):
+        raise click.ClickException("Manual requirements above remain for the selected fault(s).")
+    click.echo("Installable system commands are ready.")
+
+
 # ── start ─────────────────────────────────────────────────────────
 
 @main.command()
@@ -55,7 +189,7 @@ def main():
 @click.option("--storage-pattern", default="", help="StorageCorrupt file pattern, e.g. '*.pdb'")
 @click.option("--storage-dir", default="", help="StorageCorrupt directory")
 @click.option("--storage-interval", default="10m", help="StorageCorrupt interval. Default: 10m")
-@click.option("--auto-install", is_flag=True, default=False, help="Auto-install missing dependencies via apt-get")
+@click.option("--auto-install", is_flag=True, default=False, help="Auto-install missing dependencies using the target package manager")
 @click.option("--conflict", default="raise", type=click.Choice(["raise", "warn", "force"]), help="Conflict handling: raise (default), warn, or force")
 @click.option("--duration", "-d", default="", help="Auto-stop after duration: 10m, 1h, 30s, 1h30m (empty = run until 'chaos-jungle stop')")
 @click.option("--silent-corrupt", default=0, type=int, help="SilentNetworkCorrupt: mangle 1 in N packets via BPF (e.g. 5000)")

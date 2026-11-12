@@ -34,3 +34,22 @@ jobs:
       - name: Run lint (ruff)
         run: |
           python ci/check_ruff_baseline.py
+
+  dependency-install:
+    name: Install all mapped system dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: python:3.12-bookworm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Chaos Jungle
+        run: python -m pip install .
+
+      - name: Install and verify system commands
+        run: |
+          apt-get update
+          chaos-jungle deps install --all --yes
+          chaos-jungle deps check --all

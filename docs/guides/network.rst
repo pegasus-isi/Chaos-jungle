@@ -74,6 +74,13 @@ mechanisms are available:
 Prerequisites
 -------------
 
+Check the selected network fault with
+``chaos-jungle deps check --fault NetworkDelay``; use
+``chaos-jungle deps install --fault NetworkDelay`` to install its mapped
+system package after confirmation. CJ uses ``iproute2`` on Debian/Ubuntu
+and ``iproute`` on RPM-based systems. The following commands are manual
+Debian examples; BPF headers and capabilities still need separate setup.
+
 .. code-block:: bash
 
    # On the target machine

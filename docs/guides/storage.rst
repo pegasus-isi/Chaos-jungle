@@ -318,6 +318,12 @@ Dependencies
 
 Required on the target machine:
 
+``chaos-jungle deps check --fault StorageCorrupt`` reports missing commands;
+``chaos-jungle deps install --fault StorageCorrupt`` installs mapped system
+packages after confirmation. ``python-crontab`` and a working cron scheduler
+still need separate setup; ``deps install`` reports an incomplete result until
+the target-side Python package is present. For manual Debian installation:
+
 .. code-block:: bash
 
    sudo apt-get install -y python3 e2fsprogs coreutils inotify-tools

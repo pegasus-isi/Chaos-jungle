@@ -15,9 +15,37 @@ CLI
      export     Export session(s) to a portable JSON or CSV file
      fetch      Fetch result files from a remote SSH host
      scenarios  Inspect and watch scenario registry entries
+     deps       Check or install fault-specific system commands
      dashboard  Open the experiment tracking dashboard
      suite      Run an ExperimentSuite from a YAML config file
      daemon     Start the chaos daemon on this machine (for HTTP target mode)
+
+----
+
+deps
+----
+
+Inspect or install the system commands declared by built-in faults on a
+selected target. ``check`` does not change the target. ``install`` previews
+missing mapped packages and asks for confirmation unless ``--yes`` is passed.
+
+.. code-block:: text
+
+   chaos-jungle deps check --fault FAULT [--fault FAULT ...] [--target TARGET]
+   chaos-jungle deps check --all [--target TARGET]
+   chaos-jungle deps install --fault FAULT [--fault FAULT ...] [--target TARGET] [--yes]
+   chaos-jungle deps install --all [--target TARGET] [--yes]
+
+Examples::
+
+   chaos-jungle deps check --fault CPUStress
+   chaos-jungle deps install --fault NetworkDelay --target ssh://user@worker1
+   chaos-jungle deps check --all
+
+``--fault`` accepts a built-in class name; ``cpu``, ``memory``, and ``io``
+are shortcuts. ``--all`` installs only mapped system command packages.
+Docker daemon access, systemd, kernel support, and target-side Python
+packages need separate setup. See :doc:`../guides/installation`.
 
 ----
 
@@ -41,7 +69,7 @@ start
      --storage-pattern TEXT        StorageCorrupt file pattern, e.g. '*.pdb'
      --storage-dir TEXT            StorageCorrupt directory
      --storage-interval TEXT       StorageCorrupt crontab interval. Default: 10m
-     --auto-install                Auto-install missing dependencies via apt-get
+     --auto-install                Auto-install missing dependencies via the target package manager
 
 Examples::
 
