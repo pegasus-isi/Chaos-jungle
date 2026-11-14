@@ -16,7 +16,7 @@ unavailable     Always return 503.
 tool_fault      Inject errors into tool-call requests (messages with role=tool).
 hallucinate     Replace the assistant's content with injected wrong text.
 stream_interrupt Forward a streaming response but cut it after N SSE events.
-token_starve    Rewrite the request to set max_tokens to a tiny value.
+token_starve    Rewrite the request's output-token limit to a tiny value.
 mcp_tool_error  Return a JSON-RPC error for any MCP tool/resource call.
 mcp_unavailable Always return 503 for MCP traffic.
 mcp_timeout     Hang every MCP call for timeout_s seconds.
@@ -207,6 +207,8 @@ def _build_lifecycle_chain(
     call_index: int,
     req_body: "dict | None" = None,
     request_meta: "dict | None" = None,
+    response_fields: "dict | None" = None,
+    http_status: "int | None" = None,
 ) -> "list[dict]":
     """Build full causal-chain lifecycle records for one LLM call.
 
@@ -222,6 +224,8 @@ def _build_lifecycle_chain(
     call_index : the CJ trace/call index for this request
     req_body : parsed request body (for target description)
     request_meta : CJ-internal run/role/step headers consumed by the proxy
+    response_fields : parsed upstream response, when one was received
+    http_status : upstream HTTP status, when one was received
     """
     records = []
     request_meta = request_meta or {}
@@ -244,15 +248,28 @@ def _build_lifecycle_chain(
                 manifested = (b_hash != a_hash)
             elif triggered and fault_type in {
                 "latency", "rate_limit", "timeout", "unavailable",
-                "token_starve", "mcp_unavailable", "mcp_timeout",
+                "mcp_unavailable", "mcp_timeout",
                 "mcp_tool_error", "tool_fault", "stream_interrupt",
                 "budget_exceeded",
             }:
                 # Blocking/timing faults manifest by definition when triggered
                 manifested = True
-            elif ev:
+            elif ev and fault_type != "token_starve":
                 # Any other evidence present → assume manifested
                 manifested = True
+        if triggered and fault_type == "token_starve":
+            limit = ev.get("injected_max_tokens")
+            observed = (response_fields or {}).get("completion_tokens")
+            usage_reported = (response_fields or {}).get("usage_reported", False)
+            manifested = bool(
+                http_status == 200
+                and usage_reported
+                and isinstance(limit, int)
+                and isinstance(observed, int)
+                and 0 <= observed <= limit
+            )
+            ev["observed_completion_tokens"] = observed if usage_reported else None
+            ev["cap_respected"] = manifested
 
         # Target description
         model = (req_body or {}).get("model", "")
@@ -336,7 +353,7 @@ def _describe_expected(fault_type: str, cfg: dict) -> str:
         preview = str(cfg.get("text", ""))[:60]
         return f"response replaced with hallucination: {preview!r}..."
     if fault_type == "token_starve":
-        return f"max_tokens capped at {cfg.get('max_tokens', '?')}"
+        return f"output-token limit capped at {cfg.get('max_tokens', '?')}"
     if fault_type == "stream_interrupt":
         return f"stream cut after {cfg.get('interrupt_after', '?')} SSE events"
     if fault_type == "tool_fault":
@@ -378,7 +395,8 @@ def _describe_observed(fault_type: str, ev: dict, triggered: bool) -> str:
             return f"response replaced ({source}): {preview!r}"
         return f"response replaced: {preview!r}"
     if fault_type == "token_starve":
-        return f"max_tokens rewritten in request"
+        fields = ", ".join(ev.get("rewritten_fields", ["max_tokens"]))
+        return f"{fields} rewritten in request"
     if fault_type == "stream_interrupt":
         n = ev.get("events_forwarded", "?")
         return f"stream cut after {n} events"
@@ -1099,7 +1117,7 @@ def _extract_req_fields(req_body: dict | None, raw_body: bytes) -> dict:
         "tool_count":           len(req_body.get("tools", [])),
         "is_streaming":         1 if req_body.get("stream") else 0,
         "temperature":          req_body.get("temperature"),
-        "max_tokens_requested": req_body.get("max_tokens"),
+        "max_tokens_requested": req_body.get("max_completion_tokens", req_body.get("max_tokens")),
         "request_size_bytes":   len(raw_body),
     }
 
@@ -1107,7 +1125,7 @@ def _extract_req_fields(req_body: dict | None, raw_body: bytes) -> dict:
 def _extract_resp_fields(resp_body: bytes, resp_headers=None) -> dict:
     """Extract all capturable fields from a response body and headers."""
     result: dict = {
-        "prompt_tokens": 0, "completion_tokens": 0,
+        "prompt_tokens": 0, "completion_tokens": 0, "usage_reported": False,
         "finish_reason": "", "response_text": "",
         "response_tool_calls": 0, "system_fingerprint": "",
         "response_size_bytes": len(resp_body),
@@ -1120,6 +1138,7 @@ def _extract_resp_fields(resp_body: bytes, resp_headers=None) -> dict:
         usage = data.get("usage", {})
         result["prompt_tokens"]     = usage.get("prompt_tokens", 0)
         result["completion_tokens"] = usage.get("completion_tokens", 0)
+        result["usage_reported"] = isinstance(usage.get("completion_tokens"), int)
         result["system_fingerprint"] = data.get("system_fingerprint", "") or ""
         choices = data.get("choices", [])
         if choices:
@@ -1571,14 +1590,25 @@ def _mutate_request(cfg: dict, req_body: "dict | None", raw_body: bytes,
             evidence[fault] = {"corrupted": True}
     if fault == "token_starve" and req_body is not None:
         _orig = req_body.get("max_tokens")
+        _orig_completion = req_body.get("max_completion_tokens")
         n = cfg.get("max_tokens", 5)
         _before_dict = copy.deepcopy(req_body)
-        req_body["max_tokens"] = n
-        req_body["num_predict"] = n
+        if "max_completion_tokens" in req_body:
+            fields = [key for key in ("max_completion_tokens", "max_tokens", "num_predict")
+                      if key in req_body]
+        else:
+            fields = ["max_tokens", "num_predict"]
+        for key in fields:
+            req_body[key] = n
         raw_body = json.dumps(req_body).encode()
         if req_body != _before_dict:
             triggered.append(fault)
-            evidence[fault] = {"original_max_tokens": _orig, "injected_max_tokens": n}
+            evidence[fault] = {
+                "original_max_tokens": _orig,
+                "original_max_completion_tokens": _orig_completion,
+                "injected_max_tokens": n,
+                "rewritten_fields": fields,
+            }
     if fault == "semantic_corrupt" and req_body is not None:
         _before_dict = copy.deepcopy(req_body)
         mode = cfg.get("semantic_mode", "entity_swap")
@@ -1960,7 +1990,8 @@ class _ProxyHandler(BaseHTTPRequestHandler):
                 _cfg_json = json.dumps([c["fault"] for c in configured_chain])
                 _trg_json = json.dumps(_triggered_faults)
                 _lifecycle = _build_lifecycle_chain(
-                    configured_chain, _triggered_faults, _fault_evidence, _trace_id, req_body, _meta
+                    configured_chain, _triggered_faults, _fault_evidence, _trace_id,
+                    req_body, _meta, _resp, status,
                 )
                 _ev_json  = json.dumps(_lifecycle)
                 _llm_call_id = _record_llm_call(

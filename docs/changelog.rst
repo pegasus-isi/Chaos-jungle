@@ -1,6 +1,14 @@
 Changelog
 =========
 
+0.1.0a2 (GitHub alpha)
+----------------------
+
+* Apply the configured output-token cap to ``max_completion_tokens`` requests
+  while retaining support for ``max_tokens`` requests.
+* Mark a token-cap fault as manifested only when the upstream response reports
+  completion-token usage within the requested limit.
+
 0.1.0a1 (GitHub alpha)
 ----------------------
 

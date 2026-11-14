@@ -190,4 +190,5 @@ the Python package does not grant those permissions.
 
    changelog
    publishing
+   releases/v0.1.0a2
    releases/v0.1.0a1

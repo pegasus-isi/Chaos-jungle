@@ -34,7 +34,7 @@ from an isolated environment:
 DIST_DIR="$(mktemp -d)"
 python -m build --outdir "$DIST_DIR"
 python -m twine check "$DIST_DIR"/*
-python ci/build_skill_bundle.py --version 0.1.0a1 --output-dir "$DIST_DIR"
+python ci/build_skill_bundle.py --version 0.1.0a2 --output-dir "$DIST_DIR"
 python -m venv "$DIST_DIR/venv"
 "$DIST_DIR/venv/bin/python" -m pip install "$DIST_DIR"/*.whl
 "$DIST_DIR/venv/bin/python" -c 'from importlib.metadata import version; import chaos_jungle; assert version("chaos-jungle") == chaos_jungle.__version__'
@@ -47,7 +47,7 @@ Neither GitLab job creates a GitHub Release.
 
 ## GitHub alpha release
 
-The current version is `0.1.0a1`. Do not move or recreate a published tag to
+The current version is `0.1.0a2`. Do not move or recreate a published tag to
 fix CI: update the workflow on `main`, then use **Actions > Release Chaos
 Jungle > Run workflow** on `main` with the existing tag.
 

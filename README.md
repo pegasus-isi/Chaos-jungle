@@ -2,15 +2,15 @@
 
 A generic chaos engineering framework for injecting faults into distributed systems — network delays, packet loss, storage corruption, and LLM/agent failures — on any Linux machine, controlled locally, via SSH, or via HTTP daemon.
 
-> **Early tester preview.** Current package version is `0.1.0a1`. Download the
-> wheel from the [GitHub release](https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a1).
+> **Early tester preview.** Current package version is `0.1.0a2`. Download the
+> wheel from the [GitHub release](https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a2).
 > Please report bugs, edge cases, and feature requests in
 > [GitHub Issues](https://github.com/pegasus-isi/Chaos-jungle/issues).
 
 Paper-specific evaluation code and reproduction scripts are maintained on the
 [evaluation branch](https://github.com/pegasus-isi/Chaos-jungle/tree/evaluation).
 
-Optional [AI-assistant skills](https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a1)
+Optional [AI-assistant skills](https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a2)
 for fault injection and evaluation are distributed together in one ZIP on
 the same release as the Python package. They are not installed by `pip`; see the
 [skill installation guide](docs/guides/choosing-injection.rst#optional-ai-assistant-skills).
@@ -51,7 +51,7 @@ Download the wheel for your release from the
 then install the downloaded file:
 
 ```bash
-python -m pip install ./chaos_jungle-0.1.0a1-py3-none-any.whl
+python -m pip install ./chaos_jungle-0.1.0a2-py3-none-any.whl
 ```
 
 To install the current source instead:

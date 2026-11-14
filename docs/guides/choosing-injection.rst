@@ -188,27 +188,27 @@ Optional AI-assistant skills
 ----------------------------
 
 The repository includes separate ``chaos-jungle-injection`` and
-``chaos-jungle-evaluation`` skills for AI coding assistants.  The injection
+``chaos-jungle-evaluation`` skills for AI assistants.  The injection
 skill covers fault placement, routing, safety, and evidence; the evaluation
 skill covers workloads, controls, outcome metrics, and analysis.  They are
 optional instructions, not part of the Python wheel or a replacement for
 runtime verification.
 
 Download the skills ZIP from the matching `GitHub release
-<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a1>`_.
+<https://github.com/pegasus-isi/Chaos-jungle/releases/tag/v0.1.0a2>`_.
 It contains both complete skill directories. Extract it into the user or
 project skills directory for your assistant:
 
 .. code-block:: bash
 
-   unzip chaos-jungle-skills-v0.1.0a1.zip -d ~/.agents/skills/   # Codex
-   unzip chaos-jungle-skills-v0.1.0a1.zip -d ~/.claude/skills/   # Claude Code
+   unzip chaos-jungle-skills-v0.1.0a2.zip -d ~/.agents/skills/   # Codex
+   unzip chaos-jungle-skills-v0.1.0a2.zip -d ~/.claude/skills/   # Claude Code
 
 Or install both from the tagged repository with the skills CLI:
 
 .. code-block:: bash
 
-   npx skills add pegasus-isi/Chaos-jungle@v0.1.0a1 \
+   npx skills add pegasus-isi/Chaos-jungle@v0.1.0a2 \
      --skill chaos-jungle-injection --skill chaos-jungle-evaluation \
      -a codex -a claude-code -y
 

@@ -1,9 +1,9 @@
 # Building and publishing Chaos Jungle
 
-The current GitHub alpha pre-release is `0.1.0a1`. Python 3.9
+The current GitHub alpha pre-release is `0.1.0a2`. Python 3.9
 remains supported for package users and tests. Release tooling (Commitizen and
 pre-commit) requires Python 3.10 or newer. Version and release tags follow
-PEP 440: for example, `0.1.0a1` in package metadata and `v0.1.0a1` in Git.
+PEP 440: for example, `0.1.0a2` in package metadata and `v0.1.0a2` in Git.
 
 The GitLab pipeline runs the core test suite on Python 3.9-3.12, checks Ruff,
 builds a wheel and source distribution, validates their metadata, and installs
@@ -93,7 +93,7 @@ assistant-skill directories, preserving each `SKILL.md` and its supporting
 files. The wheel, source archive, and skills ZIP are assets of one GitHub
 Release tagged `v<package-version>`. The ZIP does not enter the Python wheel
 or source distribution. Build it locally with
-`python ci/build_skill_bundle.py --version 0.1.0a1 --output-dir dist` and
+`python ci/build_skill_bundle.py --version 0.1.0a2 --output-dir dist` and
 inspect the archive entries before tagging. Codex and Claude Code read the
 same skill folders; `npx skills add` discovers them from the tagged
 repository, not from the ZIP. A private repository requires authenticated

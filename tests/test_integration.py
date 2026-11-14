@@ -703,6 +703,70 @@ class TestProxyTracing:
         assert "injection_start_fault_offset_s" in evidence["latency"]
         assert "injection_end_fault_offset_s" in evidence["latency"]
 
+    @pytest.mark.parametrize(
+        "request_body,expected_fields",
+        [
+            ({"max_completion_tokens": 2048}, ["max_completion_tokens"]),
+            ({"max_tokens": 2048}, ["max_tokens", "num_predict"]),
+            (
+                {"max_completion_tokens": 2048, "max_tokens": 2048, "num_predict": 2048},
+                ["max_completion_tokens", "max_tokens", "num_predict"],
+            ),
+        ],
+    )
+    def test_token_starve_rewrites_supported_limits(self, request_body, expected_fields):
+        import json
+        import chaos_jungle.scripts.llm_proxy.llm_proxy as proxy
+
+        triggered = []
+        evidence = {}
+        original_keys = set(request_body)
+        changed, raw = proxy._mutate_request(
+            {"fault": "token_starve", "max_tokens": 10},
+            request_body,
+            json.dumps(request_body).encode(),
+            triggered,
+            evidence,
+        )
+
+        assert triggered == ["token_starve"]
+        assert json.loads(raw) == changed
+        assert evidence["token_starve"]["rewritten_fields"] == expected_fields
+        assert all(changed[field] == 10 for field in expected_fields)
+        if "max_completion_tokens" in request_body:
+            assert set(changed) == original_keys
+        else:
+            assert set(changed) == original_keys | {"num_predict"}
+            assert changed["num_predict"] == 10
+
+    @pytest.mark.parametrize(
+        "usage,status,expected",
+        [
+            ({"completion_tokens": 10}, 200, True),
+            ({"completion_tokens": 11}, 200, False),
+            ({}, 200, False),
+            ({"completion_tokens": 10}, 500, False),
+        ],
+    )
+    def test_token_starve_requires_observed_cap(self, usage, status, expected):
+        import json
+        import chaos_jungle.scripts.llm_proxy.llm_proxy as proxy
+
+        response = proxy._extract_resp_fields(json.dumps({"usage": usage}).encode())
+        record = proxy._build_lifecycle_chain(
+            [{"fault": "token_starve", "max_tokens": 10}],
+            ["token_starve"],
+            {"token_starve": {"injected_max_tokens": 10}},
+            0,
+            {"model": "test", "max_completion_tokens": 10},
+            response_fields=response,
+            http_status=status,
+        )[0]
+
+        assert record["applied"] is True
+        assert record["manifested"] is expected
+        assert record["evidence"]["cap_respected"] is expected
+
     def test_mutate_request_tool_fault_conditional(self):
         """_mutate_request with skill_bad_output only triggers on tool requests."""
         import chaos_jungle.scripts.llm_proxy.llm_proxy as proxy

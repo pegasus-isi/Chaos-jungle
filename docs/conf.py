@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(".."))
 # ── Project ───────────────────────────────────────────────────────
 project = "chaos-jungle"
 author = "chaos-jungle contributors"
-release = "0.1.0a1"
+release = "0.1.0a2"
 
 # ── Extensions ────────────────────────────────────────────────────
 extensions = [
